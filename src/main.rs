@@ -1,11 +1,16 @@
+use std::error::Error;
 use std::ops::Mul;
+use std::process;
+use std::time::{Duration, Instant};
 
+use calloop::EventLoop;
 use smithay::backend::egl::context::GlAttributes;
 use smithay::backend::egl::display::EGLDisplay;
 use smithay::backend::egl::native::{EGLNativeDisplay, EGLPlatform};
 use smithay::backend::egl::{ffi, EGLContext, EGLSurface};
 use smithay::egl_platform;
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState};
+use smithay_client_toolkit::event_loop::WaylandSource;
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
 use smithay_client_toolkit::reexports::client::protocol::wl_display::WlDisplay;
 use smithay_client_toolkit::reexports::client::protocol::wl_output::WlOutput;
@@ -28,6 +33,8 @@ use wayland_egl::WlEglSurface;
 use crate::renderer::Renderer;
 
 mod renderer;
+mod text;
+mod vertex;
 
 mod gl {
     #![allow(clippy::all)]
@@ -38,27 +45,55 @@ mod gl {
 const GL_ATTRIBUTES: GlAttributes =
     GlAttributes { version: (2, 0), profile: None, debug: false, vsync: false };
 
+/// Maximum time between redraws.
+const FRAME_INTERVAL: Duration = Duration::from_secs(60);
+
 /// Panel height in pixels with a scale factor of 1.
 const PANEL_HEIGHT: i32 = 20;
 
 fn main() {
     // Initialize Wayland connection.
-    let mut connection = Connection::connect_to_env().expect("Unable to find Wayland socket");
+    let mut connection = match Connection::connect_to_env() {
+        Ok(connection) => connection,
+        Err(err) => {
+            eprintln!("Error: {}", err);
+            process::exit(1);
+        },
+    };
     let mut queue = connection.new_event_queue();
+    let handle = queue.handle();
 
-    let mut state = State::new(&mut connection, &mut queue);
+    let mut state = State::new(&mut connection, &mut queue).expect("state setup");
+
+    // Setup calloop event loop.
+    let mut event_loop = EventLoop::try_new().expect("event loop creation");
+    let wayland_source = WaylandSource::new(queue).expect("wayland source creation");
+    wayland_source.insert(event_loop.handle()).expect("wayland source registration");
 
     // Start event loop.
+    let mut next_frame = Instant::now() + FRAME_INTERVAL;
     while !state.terminated {
-        queue.blocking_dispatch(&mut state).unwrap();
+        // Calculate upper bound for event queue dispatch timeout.
+        let timeout = next_frame.saturating_duration_since(Instant::now());
+
+        // Dispatch Wayland & Calloop event queue.
+        event_loop.dispatch(Some(timeout), &mut state).expect("event dispatch");
+
+        // Request redraw when `FRAME_INTERVAL` was reached.
+        let now = Instant::now();
+        if now >= next_frame {
+            next_frame = now + FRAME_INTERVAL;
+
+            let surface = state.window().wl_surface();
+            surface.frame(&handle, surface.clone()).expect("scheduled frame request");
+            surface.commit();
+        }
     }
 }
 
 /// Wayland protocol handler state.
-#[derive(Debug)]
 struct State {
     protocol_states: ProtocolStates,
-    frame_pending: bool,
     terminated: bool,
     factor: i32,
     size: Size,
@@ -71,7 +106,10 @@ struct State {
 }
 
 impl State {
-    fn new(connection: &mut Connection, queue: &mut EventQueue<Self>) -> Self {
+    fn new(
+        connection: &mut Connection,
+        queue: &mut EventQueue<Self>,
+    ) -> Result<Self, Box<dyn Error>> {
         // Setup globals.
         let queue_handle = queue.handle();
         let protocol_states = ProtocolStates::new(connection, &queue_handle);
@@ -83,7 +121,6 @@ impl State {
             factor: 1,
             protocol_states,
             size,
-            frame_pending: Default::default(),
             egl_context: Default::default(),
             egl_surface: Default::default(),
             terminated: Default::default(),
@@ -93,37 +130,34 @@ impl State {
         };
 
         // Roundtrip to initialize globals.
-        queue.blocking_dispatch(&mut state).unwrap();
-        queue.blocking_dispatch(&mut state).unwrap();
+        queue.blocking_dispatch(&mut state)?;
+        queue.blocking_dispatch(&mut state)?;
 
-        state.init_window(connection, &queue_handle);
+        state.init_window(connection, &queue_handle)?;
 
-        state
+        Ok(state)
     }
 
     /// Initialize the window and its EGL surface.
-    fn init_window(&mut self, connection: &mut Connection, queue: &QueueHandle<Self>) {
+    fn init_window(
+        &mut self,
+        connection: &mut Connection,
+        queue: &QueueHandle<Self>,
+    ) -> Result<(), Box<dyn Error>> {
         // Initialize EGL context.
         let native_display = NativeDisplay::new(connection.display());
-        let display = EGLDisplay::new(&native_display, None).expect("Unable to create EGL display");
+        let display = EGLDisplay::new(&native_display, None)?;
         let context =
-            EGLContext::new_with_config(&display, GL_ATTRIBUTES, Default::default(), None)
-                .expect("Unable to create EGL context");
+            EGLContext::new_with_config(&display, GL_ATTRIBUTES, Default::default(), None)?;
 
         // Create the Wayland surface.
-        let surface = self
-            .protocol_states
-            .compositor
-            .create_surface(queue)
-            .expect("Unable to create surface");
+        let surface = self.protocol_states.compositor.create_surface(queue)?;
 
         // Create the EGL surface.
         let config = context.config_id();
-        let native_surface = WlEglSurface::new(surface.id(), self.size.width, self.size.height)
-            .expect("Unable to create EGL surface");
-        let pixel_format = context.pixel_format().expect("No valid pixel format present");
-        let egl_surface = EGLSurface::new(&display, pixel_format, config, native_surface, None)
-            .expect("Unable to bind EGL surface");
+        let native_surface = WlEglSurface::new(surface.id(), self.size.width, self.size.height)?;
+        let pixel_format = context.pixel_format().ok_or_else(|| String::from("no pixel format"))?;
+        let egl_surface = EGLSurface::new(&display, pixel_format, config, native_surface, None)?;
 
         // Create the window.
         let window = LayerSurface::builder()
@@ -131,22 +165,22 @@ impl State {
             .exclusive_zone(PANEL_HEIGHT)
             .size((0, PANEL_HEIGHT as u32))
             .namespace("panel")
-            .map(queue, &mut self.protocol_states.layer, surface, Layer::Top)
-            .expect("Unable to create window");
+            .map(queue, &mut self.protocol_states.layer, surface, Layer::Top)?;
 
         // Initialize the renderer.
-        let renderer = Renderer::new(&context, &egl_surface);
+        let renderer = Renderer::new(&context, &egl_surface)?;
 
         self.egl_surface = Some(egl_surface);
         self.egl_context = Some(context);
         self.renderer = Some(renderer);
         self.window = Some(window);
+
+        Ok(())
     }
 
     /// Render the application state.
     fn draw(&mut self) {
         self.renderer().draw();
-        self.frame_pending = false;
 
         if let Err(error) = self.egl_surface().swap_buffers(None) {
             eprintln!("Buffer swap failed: {:?}", error);
