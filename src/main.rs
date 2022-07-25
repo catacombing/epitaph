@@ -35,6 +35,7 @@ use crate::renderer::Renderer;
 mod renderer;
 mod text;
 mod vertex;
+mod module;
 
 mod gl {
     #![allow(clippy::all)]

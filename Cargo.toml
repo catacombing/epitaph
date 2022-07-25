@@ -12,9 +12,12 @@ edition = "2021"
 smithay = { git = "https://github.com/chrisduerr/smithay", rev = "8176520e99f2d8a821bb6636dbbf8a987e2206d6", default-features = false, features = ["backend_egl", "backend_winit"] }
 smithay-client-toolkit = { git = "https://github.com/chrisduerr/client-toolkit", rev = "6d76fefac3e830f9f71712a634abc0dfda6e3900" }
 wayland-egl = "0.30.0-alpha8"
+calloop = "0.10.1"
 crossfont = "0.5.0"
 chrono = { version = "0.4.19", default-features = false, features = ["clock"] }
-calloop = "0.10.1"
+resvg = { version = "0.23.0", default-features = false }
+usvg = { version = "0.23.0", default-features = false }
+tiny-skia = "0.6.0"
 
 [build-dependencies]
 gl_generator = "0.14.0"

@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="110mm"
+   height="70mm"
+   viewBox="0 0 110 70"
+   version="1.1"
+   id="svg5"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs9">
+    <clipPath
+       clipPathUnits="userSpaceOnUse"
+       id="clipPath5990">
+      <path
+         id="lpe_path-effect5994"
+         class="powerclip"
+         d="M 45,25 H 155 V 75 H 45 Z M 85.135001,59.999999 H 94.17 L 85.145002,114.15 122.93,39.999999 H 106.67 L 116.665,10 H 83.777 Z" />
+    </clipPath>
+  </defs>
+  <rect
+     style="fill:#ffffff;stroke-width:0.264583"
+     transform="translate(-50,-15)"
+     clip-path="url(#clipPath5990)"
+     id="rect270"
+     width="100"
+     height="40"
+     x="50"
+     y="30" />
+  <rect
+     style="fill:#ffffff;stroke-width:0.313059"
+     transform="translate(-50,-15)"
+     id="rect382"
+     width="7"
+     height="20"
+     x="152"
+     y="40" />
+  <path
+     style="fill:#ffffff;stroke-width:0.264583"
+     d="m 40.000001,40 h 10 l -5,30 20,-40 h -15 l 10,-30.00000011444091 h -21 z"
+     id="path422" />
+</svg>

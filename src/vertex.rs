@@ -1,13 +1,15 @@
+//! OpenGL vertex batching.
+
 use std::{cmp, mem, ptr};
 
 use crate::gl;
 use crate::gl::types::GLuint;
-use crate::text::GlGlyph;
+use crate::text::GlSubTexture;
 
 /// Maximum items to be drawn in a batch.
 ///
 /// We use the closest number to `u16::MAX` dividable by 4 (amount of vertices
-/// we push for a glyph), since it's the maximum possible index in
+/// we push for a subtexture), since it's the maximum possible index in
 /// `glDrawElements` in GLES2.
 const MAX_BATCH_SIZE: usize = (u16::MAX - u16::MAX % 4) as usize;
 
@@ -102,7 +104,7 @@ impl<'a, V> VertexBatch<'a, V> {
             gl::BufferSubData(
                 gl::ARRAY_BUFFER,
                 0,
-                (vertex_count * mem::size_of::<GlyphVertex>()) as isize,
+                (vertex_count * mem::size_of::<GlVertex>()) as isize,
                 self.vertices.as_ptr() as *const _,
             );
 
@@ -112,9 +114,9 @@ impl<'a, V> VertexBatch<'a, V> {
     }
 }
 
-impl GlGlyph {
-    /// OpenGL vertices for this glyph.
-    pub fn vertices(&self, x: i16, y: i16) -> Option<[GlyphVertex; 4]> {
+impl GlSubTexture {
+    /// OpenGL vertices for this subtexture.
+    pub fn vertices(&self, x: i16, y: i16) -> Option<[GlVertex; 4]> {
         if self.width == 0 || self.height == 0 {
             return None;
         }
@@ -125,7 +127,7 @@ impl GlGlyph {
         let flags = if self.multicolor { 1. } else { 0. };
 
         // Bottom-Left vertex.
-        let bottom_left = GlyphVertex {
+        let bottom_left = GlVertex {
             x,
             y: y + self.height,
             u: self.uv_left,
@@ -134,10 +136,10 @@ impl GlGlyph {
         };
 
         // Top-Left vertex.
-        let top_left = GlyphVertex { x, y, u: self.uv_left, v: self.uv_bot, flags };
+        let top_left = GlVertex { x, y, u: self.uv_left, v: self.uv_bot, flags };
 
         // Top-Right vertex.
-        let top_right = GlyphVertex {
+        let top_right = GlVertex {
             x: x + self.width,
             y,
             u: self.uv_left + self.uv_width,
@@ -146,7 +148,7 @@ impl GlGlyph {
         };
 
         // Bottom-Right vertex.
-        let bottom_right = GlyphVertex {
+        let bottom_right = GlVertex {
             x: x + self.width,
             y: y + self.height,
             u: self.uv_left + self.uv_width,
@@ -160,8 +162,8 @@ impl GlGlyph {
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct GlyphVertex {
-    // Glyph position.
+pub struct GlVertex {
+    // Vertex position.
     pub x: i16,
     pub y: i16,
 
@@ -169,7 +171,7 @@ pub struct GlyphVertex {
     pub u: f32,
     pub v: f32,
 
-    // Glyph flags.
+    // Vertex flags.
     pub flags: f32,
 }
 

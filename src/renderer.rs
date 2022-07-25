@@ -7,8 +7,11 @@ use crossfont::Metrics;
 use smithay::backend::egl::{self, EGLContext, EGLSurface};
 
 use crate::gl::types::{GLfloat, GLshort};
+use crate::module::battery::Battery;
+use crate::module::clock::Clock;
+use crate::module::{Alignment, ModuleRun};
 use crate::text::GlRasterizer;
-use crate::vertex::{GlyphVertex, VertexBatcher};
+use crate::vertex::{GlVertex, VertexBatcher};
 use crate::{gl, Size};
 
 /// Default font.
@@ -29,10 +32,10 @@ const FRAGMENT_SHADER: &str = include_str!("../shaders/fragment.glsl");
 
 /// OpenGL renderer.
 pub struct Renderer {
-    batcher: VertexBatcher<GlyphVertex>,
-    rasterizer: GlRasterizer,
-    metrics: Metrics,
-    size: Size<f32>,
+    pub batcher: VertexBatcher<GlVertex>,
+    pub rasterizer: GlRasterizer,
+    pub metrics: Metrics,
+    pub size: Size<f32>,
 }
 
 impl Renderer {
@@ -110,7 +113,7 @@ impl Renderer {
             gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
             gl::BufferData(
                 gl::ARRAY_BUFFER,
-                (BATCH_MAX * mem::size_of::<GlyphVertex>()) as isize,
+                (BATCH_MAX * mem::size_of::<GlVertex>()) as isize,
                 ptr::null(),
                 gl::STREAM_DRAW,
             );
@@ -122,7 +125,7 @@ impl Renderer {
                 2,
                 gl::SHORT,
                 gl::FALSE,
-                mem::size_of::<GlyphVertex>() as i32,
+                mem::size_of::<GlVertex>() as i32,
                 offset as *const _,
             );
             gl::EnableVertexAttribArray(0);
@@ -134,7 +137,7 @@ impl Renderer {
                 2,
                 gl::FLOAT,
                 gl::FALSE,
-                mem::size_of::<GlyphVertex>() as i32,
+                mem::size_of::<GlVertex>() as i32,
                 offset as *const _,
             );
             gl::EnableVertexAttribArray(1);
@@ -146,7 +149,7 @@ impl Renderer {
                 1,
                 gl::FLOAT,
                 gl::FALSE,
-                mem::size_of::<GlyphVertex>() as i32,
+                mem::size_of::<GlVertex>() as i32,
                 offset as *const _,
             );
             gl::EnableVertexAttribArray(2);
@@ -192,58 +195,17 @@ impl Renderer {
         unsafe {
             gl::Clear(gl::COLOR_BUFFER_BIT);
 
-            // TODO: Just for demonstration purposes.
-            let time = chrono::offset::Local::now();
-            self.draw_string(&time.format("%H:%M").to_string(), Alignment::Center);
+            // Center-aligned modules.
+            let mut center = ModuleRun::new(self, Alignment::Center);
+            center.insert(Clock);
+            center.draw();
+
+            // Right-aligned modules.
+            let mut right = ModuleRun::new(self, Alignment::Right);
+            right.insert(Battery);
+            right.draw();
 
             gl::Flush();
         }
     }
-
-    /// Render text.
-    fn draw_string(&mut self, text: &str, alignment: Alignment) {
-        let mut x = 0;
-        let y = (self.metrics.line_height + self.metrics.descent as f64) as i16;
-
-        // Batch vertices for all glyphs.
-        for glyph in self.rasterizer.rasterize_string(text) {
-            for vertex in glyph.vertices(x, y).into_iter().flatten() {
-                self.batcher.push(glyph.texture_id, vertex);
-            }
-
-            x += glyph.advance.0 as i16;
-        }
-
-        // Determine text offset from left screen edge.
-        let x_offset = match alignment {
-            Alignment::Left => 0,
-            Alignment::Center => (self.size.width as i16 - x) / 2,
-            Alignment::Right => self.size.width as i16 - x,
-        };
-
-        // Update vertex position based on text alignment.
-        if x_offset != 0 {
-            for vertex in self.batcher.pending() {
-                vertex.x += x_offset;
-            }
-        }
-
-        self.draw_batches();
-    }
-
-    /// Render all staged vertices.
-    fn draw_batches(&mut self) {
-        let mut batches = self.batcher.batches();
-        while let Some(batch) = batches.next() {
-            batch.draw();
-        }
-    }
-}
-
-/// Text alignment.
-#[derive(Copy, Clone, PartialEq, Eq)]
-enum Alignment {
-    Left,
-    Center,
-    Right,
 }
