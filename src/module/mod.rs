@@ -8,9 +8,13 @@ use crate::{Renderer, Size};
 
 pub mod battery;
 pub mod clock;
+pub mod wifi;
 
 /// Padding to the screen edges.
 const EDGE_PADDING: i16 = 5;
+
+/// Padding between modules.
+const MODULE_PADDING: i16 = 5;
 
 /// Run of multiple panel modules.
 pub struct ModuleRun<'a> {
@@ -40,7 +44,10 @@ impl<'a> ModuleRun<'a> {
     }
 
     /// Draw all modules in this run.
-    pub fn draw(self) {
+    pub fn draw(mut self) {
+        // Trim last module padding.
+        self.width = self.width.saturating_sub(MODULE_PADDING);
+
         // Determine vertex offset from left screen edge.
         let x_offset = match self.alignment {
             Alignment::Left => EDGE_PADDING,
@@ -74,6 +81,8 @@ impl<'a> ModuleRun<'a> {
 
             self.width += glyph.advance.0 as i16;
         }
+
+        self.width += MODULE_PADDING;
     }
 
     /// Add SVG module to this run.
@@ -92,8 +101,9 @@ impl<'a> ModuleRun<'a> {
         for vertex in svg.vertices(self.width, y).into_iter().flatten() {
             self.batcher.push(svg.texture_id, vertex);
         }
-
         self.width += svg.advance.0 as i16;
+
+        self.width += MODULE_PADDING;
     }
 }
 

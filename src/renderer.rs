@@ -8,6 +8,7 @@ use smithay::backend::egl::{self, EGLContext, EGLSurface};
 
 use crate::gl::types::{GLfloat, GLshort};
 use crate::module::battery::Battery;
+use crate::module::wifi::Wifi;
 use crate::module::clock::Clock;
 use crate::module::{Alignment, ModuleRun};
 use crate::text::GlRasterizer;
@@ -202,6 +203,7 @@ impl Renderer {
 
             // Right-aligned modules.
             let mut right = ModuleRun::new(self, Alignment::Right);
+            right.insert(Wifi);
             right.insert(Battery);
             right.draw();
 

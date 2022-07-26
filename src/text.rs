@@ -389,6 +389,15 @@ pub enum Svg {
     Battery60,
     Battery40,
     Battery20,
+    WifiConnected100,
+    WifiConnected75,
+    WifiConnected50,
+    WifiConnected25,
+    WifiDisconnected100,
+    WifiDisconnected75,
+    WifiDisconnected50,
+    WifiDisconnected25,
+    WifiDisabled,
 }
 
 impl Svg {
@@ -405,22 +414,40 @@ impl Svg {
             Self::Battery60 => (22, 8),
             Self::Battery40 => (22, 8),
             Self::Battery20 => (22, 8),
+            Self::WifiConnected100 => (20, 14),
+            Self::WifiConnected75 => (20, 14),
+            Self::WifiConnected50 => (20, 14),
+            Self::WifiConnected25 => (20, 14),
+            Self::WifiDisconnected100 => (20, 14),
+            Self::WifiDisconnected75 => (20, 14),
+            Self::WifiDisconnected50 => (20, 14),
+            Self::WifiDisconnected25 => (20, 14),
+            Self::WifiDisabled => (20, 16),
         }
     }
 
     /// Get SVG's text content.
     const fn content(&self) -> &'static str {
         match self {
-            Self::BatteryCharging100 => include_str!("../svgs/battery_charging_100.svg"),
-            Self::BatteryCharging80 => include_str!("../svgs/battery_charging_80.svg"),
-            Self::BatteryCharging60 => include_str!("../svgs/battery_charging_60.svg"),
-            Self::BatteryCharging40 => include_str!("../svgs/battery_charging_40.svg"),
-            Self::BatteryCharging20 => include_str!("../svgs/battery_charging_20.svg"),
-            Self::Battery100 => include_str!("../svgs/battery_100.svg"),
-            Self::Battery80 => include_str!("../svgs/battery_80.svg"),
-            Self::Battery60 => include_str!("../svgs/battery_60.svg"),
-            Self::Battery40 => include_str!("../svgs/battery_40.svg"),
-            Self::Battery20 => include_str!("../svgs/battery_20.svg"),
+            Self::BatteryCharging100 => include_str!("../svgs/battery/battery_charging_100.svg"),
+            Self::BatteryCharging80 => include_str!("../svgs/battery/battery_charging_80.svg"),
+            Self::BatteryCharging60 => include_str!("../svgs/battery/battery_charging_60.svg"),
+            Self::BatteryCharging40 => include_str!("../svgs/battery/battery_charging_40.svg"),
+            Self::BatteryCharging20 => include_str!("../svgs/battery/battery_charging_20.svg"),
+            Self::Battery100 => include_str!("../svgs/battery/battery_100.svg"),
+            Self::Battery80 => include_str!("../svgs/battery/battery_80.svg"),
+            Self::Battery60 => include_str!("../svgs/battery/battery_60.svg"),
+            Self::Battery40 => include_str!("../svgs/battery/battery_40.svg"),
+            Self::Battery20 => include_str!("../svgs/battery/battery_20.svg"),
+            Self::WifiConnected100 => include_str!("../svgs/wifi/wifi_connected_100.svg"),
+            Self::WifiConnected75 => include_str!("../svgs/wifi/wifi_connected_75.svg"),
+            Self::WifiConnected50 => include_str!("../svgs/wifi/wifi_connected_50.svg"),
+            Self::WifiConnected25 => include_str!("../svgs/wifi/wifi_connected_25.svg"),
+            Self::WifiDisconnected100 => include_str!("../svgs/wifi/wifi_disconnected_100.svg"),
+            Self::WifiDisconnected75 => include_str!("../svgs/wifi/wifi_disconnected_75.svg"),
+            Self::WifiDisconnected50 => include_str!("../svgs/wifi/wifi_disconnected_50.svg"),
+            Self::WifiDisconnected25 => include_str!("../svgs/wifi/wifi_disconnected_25.svg"),
+            Self::WifiDisabled => include_str!("../svgs/wifi/wifi_disabled.svg"),
         }
     }
 }
