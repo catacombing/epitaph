@@ -1,9 +1,9 @@
 //! OpenGL rendering.
 
 use std::error::Error;
+use std::result::Result as StdResult;
 use std::{mem, ptr};
 
-use crossfont::Metrics;
 use smithay::backend::egl::{self, EGLContext, EGLSurface};
 
 use crate::gl::types::{GLfloat, GLshort};
@@ -20,7 +20,7 @@ use crate::{gl, Size};
 const FONT: &str = "Sans";
 
 /// Default font size.
-const FONT_SIZE: f32 = 12.;
+const FONT_SIZE: f32 = 6.;
 
 /// Maximum items to be drawn in a batch.
 ///
@@ -32,17 +32,20 @@ const BATCH_MAX: usize = (u16::MAX - u16::MAX % 4) as usize;
 const VERTEX_SHADER: &str = include_str!("../shaders/vertex.glsl");
 const FRAGMENT_SHADER: &str = include_str!("../shaders/fragment.glsl");
 
+/// Convenience result wrapper.
+type Result<T> = StdResult<T, Box<dyn Error>>;
+
 /// OpenGL renderer.
 pub struct Renderer {
     pub batcher: VertexBatcher<GlVertex>,
     pub rasterizer: GlRasterizer,
-    pub metrics: Metrics,
+    pub scale_factor: i32,
     pub size: Size<f32>,
 }
 
 impl Renderer {
     /// Initialize a new renderer.
-    pub fn new(context: &EGLContext, surface: &EGLSurface) -> Result<Self, Box<dyn Error>> {
+    pub fn new(context: &EGLContext, surface: &EGLSurface, scale_factor: i32) -> Result<Self> {
         // Create buffer with all possible vertex indices.
         let mut vertex_indices = Vec::with_capacity(BATCH_MAX / 4 * 6);
         for index in 0..(BATCH_MAX / 4) as u16 {
@@ -162,22 +165,16 @@ impl Renderer {
             gl::BlendFunc(gl::SRC1_COLOR_EXT, gl::ONE_MINUS_SRC1_COLOR_EXT);
         }
 
-        let mut rasterizer = GlRasterizer::new(FONT, FONT_SIZE)?;
-
-        // Rasterize any glyph to initialize metrics.
-        let _ = rasterizer.rasterize_char(' ');
-        let metrics = rasterizer.metrics()?;
-
         Ok(Renderer {
-            rasterizer,
-            metrics,
-            batcher: VertexBatcher::new(),
+            scale_factor,
+            rasterizer: GlRasterizer::new(FONT, FONT_SIZE, scale_factor)?,
+            batcher: Default::default(),
             size: Default::default(),
         })
     }
 
     /// Update viewport size.
-    pub fn resize(&mut self, size: Size) {
+    pub fn resize(&mut self, size: Size, scale_factor: i32) {
         unsafe { gl::Viewport(0, 0, size.width, size.height) };
         self.size = size.into();
 
@@ -190,20 +187,24 @@ impl Renderer {
         unsafe {
             gl::Uniform4f(0, offset_x, offset_y, scale_x, scale_y);
         }
+
+        // Update rasterizer's scale factor.
+        self.rasterizer.set_scale_factor(scale_factor);
+        self.scale_factor = scale_factor;
     }
 
     /// Render all passed icon textures.
-    pub fn draw(&mut self) {
+    pub fn draw(&mut self) -> Result<()> {
         unsafe {
             gl::Clear(gl::COLOR_BUFFER_BIT);
 
             // Center-aligned modules.
-            let mut center = ModuleRun::new(self, Alignment::Center);
+            let mut center = ModuleRun::new(self, Alignment::Center)?;
             center.insert(Clock);
             center.draw();
 
             // Right-aligned modules.
-            let mut right = ModuleRun::new(self, Alignment::Right);
+            let mut right = ModuleRun::new(self, Alignment::Right)?;
             right.insert(Cellular);
             right.insert(Wifi);
             right.insert(Battery);
@@ -211,5 +212,7 @@ impl Renderer {
 
             gl::Flush();
         }
+
+        Ok(())
     }
 }

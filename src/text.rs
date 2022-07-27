@@ -30,24 +30,61 @@ pub struct GlRasterizer {
     atlas: Atlas,
 
     // FreeType font rasterization.
+    metrics: Option<Metrics>,
     rasterizer: Rasterizer,
+    font_name: String,
     size: FontSize,
     font: FontKey,
+
+    // DPI scale factor.
+    scale_factor: i32,
 }
 
 impl GlRasterizer {
-    pub fn new(font: &str, size: impl Into<FontSize>) -> Result<Self> {
+    pub fn new(
+        font_name: impl Into<String>,
+        size: impl Into<FontSize>,
+        scale_factor: i32,
+    ) -> Result<Self> {
+        let font_name = font_name.into();
         let size = size.into();
 
         // Create FreeType rasterizer.
         let mut rasterizer = Rasterizer::new(1.)?;
 
         // Load font at the requested size.
-        let font_style = Style::Description { slant: Slant::Normal, weight: Weight::Normal };
-        let font_desc = FontDesc::new(font, font_style);
-        let font = rasterizer.load_font(&font_desc, size)?;
+        let font = Self::load_font(&mut rasterizer, &font_name, size, scale_factor)?;
 
-        Ok(Self { rasterizer, font, size, atlas: Default::default(), cache: Default::default() })
+        Ok(Self {
+            scale_factor,
+            rasterizer,
+            font_name,
+            font,
+            size,
+            metrics: Default::default(),
+            atlas: Default::default(),
+            cache: Default::default(),
+        })
+    }
+
+    /// Update the DPI scale factor.
+    pub fn set_scale_factor(&mut self, scale_factor: i32) {
+        // Avoid clearing all caches when factor didn't change.
+        if self.scale_factor == scale_factor {
+            return;
+        }
+        self.scale_factor = scale_factor;
+
+        // Load font at new size.
+        self.font = Self::load_font(&mut self.rasterizer, &self.font_name, self.size, scale_factor)
+            .unwrap_or(self.font);
+
+        // Clear glyph cache and drop all atlas textures.
+        self.atlas = Atlas::default();
+        self.cache = HashMap::new();
+
+        // Clear font metrics.
+        self.metrics = None;
     }
 
     /// Rasterize each glyph in a string.
@@ -99,7 +136,9 @@ impl GlRasterizer {
             Entry::Vacant(entry) => entry,
         };
 
-        let (width, height) = svg.size();
+        let (mut width, mut height) = svg.size();
+        width *= self.scale_factor as u32;
+        height *= self.scale_factor as u32;
 
         // Setup target buffer.
         let mut pixmap = Pixmap::new(width, height)
@@ -119,13 +158,37 @@ impl GlRasterizer {
     }
 
     /// Get font metrics.
-    pub fn metrics(&self) -> Result<Metrics> {
-        Ok(self.rasterizer.metrics(self.font, self.size)?)
+    pub fn metrics(&mut self) -> Result<Metrics> {
+        match &mut self.metrics {
+            Some(metrics) => Ok(*metrics),
+            None => {
+                let _ = self.rasterize_char(' ');
+                let new_metrics = self.rasterizer.metrics(self.font, self.font_size())?;
+                Ok(*self.metrics.insert(new_metrics))
+            },
+        }
     }
 
     /// Get glyph key for a character.
     fn glyph_key(&self, character: char) -> GlyphKey {
-        GlyphKey { font_key: self.font, size: self.size, character }
+        GlyphKey { font_key: self.font, size: self.font_size(), character }
+    }
+
+    /// Load a new font.
+    fn load_font(
+        rasterizer: &mut Rasterizer,
+        font_name: &str,
+        size: FontSize,
+        scale_factor: i32,
+    ) -> Result<FontKey> {
+        let font_style = Style::Description { slant: Slant::Normal, weight: Weight::Normal };
+        let font_desc = FontDesc::new(font_name, font_style);
+        Ok(rasterizer.load_font(&font_desc, size * scale_factor as f32)?)
+    }
+
+    /// Scaled font size.
+    fn font_size(&self) -> FontSize {
+        self.size * self.scale_factor as f32
     }
 }
 

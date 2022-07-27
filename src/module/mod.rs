@@ -1,5 +1,7 @@
 //! Panel modules.
 
+use std::error::Error;
+
 use crossfont::Metrics;
 
 use crate::text::{GlRasterizer, Svg};
@@ -21,22 +23,24 @@ const MODULE_PADDING: i16 = 5;
 pub struct ModuleRun<'a> {
     batcher: &'a mut VertexBatcher<GlVertex>,
     rasterizer: &'a mut GlRasterizer,
-    metrics: &'a mut Metrics,
     size: &'a mut Size<f32>,
     alignment: Alignment,
+    scale_factor: i16,
+    metrics: Metrics,
     width: i16,
 }
 
 impl<'a> ModuleRun<'a> {
-    pub fn new(renderer: &'a mut Renderer, alignment: Alignment) -> Self {
-        Self {
+    pub fn new(renderer: &'a mut Renderer, alignment: Alignment) -> Result<Self, Box<dyn Error>> {
+        Ok(Self {
+            scale_factor: renderer.scale_factor as i16,
+            metrics: renderer.rasterizer.metrics()?,
             rasterizer: &mut renderer.rasterizer,
             batcher: &mut renderer.batcher,
-            metrics: &mut renderer.metrics,
             size: &mut renderer.size,
             alignment,
             width: 0,
-        }
+        })
     }
 
     /// Insert module into run.
@@ -47,13 +51,13 @@ impl<'a> ModuleRun<'a> {
     /// Draw all modules in this run.
     pub fn draw(mut self) {
         // Trim last module padding.
-        self.width = self.width.saturating_sub(MODULE_PADDING);
+        self.width = self.width.saturating_sub(self.module_padding());
 
         // Determine vertex offset from left screen edge.
         let x_offset = match self.alignment {
-            Alignment::Left => EDGE_PADDING,
+            Alignment::Left => self.edge_padding(),
             Alignment::Center => (self.size.width as i16 - self.width) / 2,
-            Alignment::Right => self.size.width as i16 - self.width - EDGE_PADDING,
+            Alignment::Right => self.size.width as i16 - self.width - self.edge_padding(),
         };
 
         // Update vertex position based on text alignment.
@@ -83,7 +87,7 @@ impl<'a> ModuleRun<'a> {
             self.width += glyph.advance.0 as i16;
         }
 
-        self.width += MODULE_PADDING;
+        self.width += self.module_padding();
     }
 
     /// Add SVG module to this run.
@@ -104,7 +108,17 @@ impl<'a> ModuleRun<'a> {
         }
         self.width += svg.advance.0 as i16;
 
-        self.width += MODULE_PADDING;
+        self.width += self.module_padding();
+    }
+
+    /// Module padding with scale factor applied.
+    fn module_padding(&self) -> i16 {
+        MODULE_PADDING * self.scale_factor
+    }
+
+    /// Edge padding with scale factor applied.
+    fn edge_padding(&self) -> i16 {
+        EDGE_PADDING * self.scale_factor
     }
 }
 

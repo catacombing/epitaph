@@ -169,7 +169,7 @@ impl State {
             .map(queue, &mut self.protocol_states.layer, surface, Layer::Top)?;
 
         // Initialize the renderer.
-        let renderer = Renderer::new(&context, &egl_surface)?;
+        let renderer = Renderer::new(&context, &egl_surface, self.factor)?;
 
         self.egl_surface = Some(egl_surface);
         self.egl_context = Some(context);
@@ -181,7 +181,9 @@ impl State {
 
     /// Render the application state.
     fn draw(&mut self) {
-        self.renderer().draw();
+        if let Err(error) = self.renderer().draw() {
+            eprintln!("Rendering failed: {:?}", error);
+        }
 
         if let Err(error) = self.egl_surface().swap_buffers(None) {
             eprintln!("Buffer swap failed: {:?}", error);
@@ -191,8 +193,9 @@ impl State {
     fn resize(&mut self, size: Size) {
         self.size = size;
 
+        let scale_factor = self.factor;
         self.egl_surface().resize(size.width, size.height, 0, 0);
-        self.renderer().resize(size);
+        self.renderer().resize(size, scale_factor);
         self.draw();
     }
 

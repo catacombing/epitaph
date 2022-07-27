@@ -17,17 +17,18 @@ const MAX_BATCH_SIZE: usize = (u16::MAX - u16::MAX % 4) as usize;
 ///
 /// Groups together multiple vertices with the same texture ID into a rendering
 /// batch and limits the maximum size of each batch.
-#[derive(Default)]
 pub struct VertexBatcher<V> {
     texture_ids: Vec<GLuint>,
     vertices: Vec<V>,
 }
 
-impl<V> VertexBatcher<V> {
-    pub fn new() -> Self {
-        Self { texture_ids: Default::default(), vertices: Default::default() }
+impl<V> Default for VertexBatcher<V> {
+    fn default() -> Self {
+        Self { texture_ids: Vec::new(), vertices: Vec::new() }
     }
+}
 
+impl<V> VertexBatcher<V> {
     /// Add a vertex to the batcher.
     pub fn push(&mut self, texture_id: GLuint, vertex: V) {
         self.texture_ids.push(texture_id);
