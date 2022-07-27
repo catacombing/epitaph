@@ -32,10 +32,10 @@ use wayland_egl::WlEglSurface;
 
 use crate::renderer::Renderer;
 
+mod module;
 mod renderer;
 mod text;
 mod vertex;
-mod module;
 
 mod gl {
     #![allow(clippy::all)]

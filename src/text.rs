@@ -8,8 +8,8 @@ use std::result::Result as StdResult;
 use std::{cmp, mem, ptr};
 
 use crossfont::{
-    BitmapBuffer, FontDesc, FontKey, GlyphKey, Metrics, Rasterize, RasterizedGlyph,
-    Rasterizer, Size as FontSize, Slant, Style, Weight,
+    BitmapBuffer, FontDesc, FontKey, GlyphKey, Metrics, Rasterize, RasterizedGlyph, Rasterizer,
+    Size as FontSize, Slant, Style, Weight,
 };
 use tiny_skia::{Pixmap, Transform};
 use usvg::{FitTo, Options, Tree};
@@ -47,13 +47,7 @@ impl GlRasterizer {
         let font_desc = FontDesc::new(font, font_style);
         let font = rasterizer.load_font(&font_desc, size)?;
 
-        Ok(Self {
-            rasterizer,
-            font,
-            size,
-            atlas: Default::default(),
-            cache: Default::default(),
-        })
+        Ok(Self { rasterizer, font, size, atlas: Default::default(), cache: Default::default() })
     }
 
     /// Rasterize each glyph in a string.
@@ -398,6 +392,13 @@ pub enum Svg {
     WifiDisconnected50,
     WifiDisconnected25,
     WifiDisabled,
+    Cellular100,
+    Cellular80,
+    Cellular60,
+    Cellular40,
+    Cellular20,
+    Cellular0,
+    CellularDisabled,
 }
 
 impl Svg {
@@ -423,6 +424,13 @@ impl Svg {
             Self::WifiDisconnected50 => (20, 14),
             Self::WifiDisconnected25 => (20, 14),
             Self::WifiDisabled => (20, 16),
+            Self::Cellular100 => (20, 15),
+            Self::Cellular80 => (20, 15),
+            Self::Cellular60 => (20, 15),
+            Self::Cellular40 => (20, 15),
+            Self::Cellular20 => (20, 15),
+            Self::Cellular0 => (20, 15),
+            Self::CellularDisabled => (20, 18),
         }
     }
 
@@ -448,6 +456,13 @@ impl Svg {
             Self::WifiDisconnected50 => include_str!("../svgs/wifi/wifi_disconnected_50.svg"),
             Self::WifiDisconnected25 => include_str!("../svgs/wifi/wifi_disconnected_25.svg"),
             Self::WifiDisabled => include_str!("../svgs/wifi/wifi_disabled.svg"),
+            Self::Cellular100 => include_str!("../svgs/cellular/cellular_100.svg"),
+            Self::Cellular80 => include_str!("../svgs/cellular/cellular_80.svg"),
+            Self::Cellular60 => include_str!("../svgs/cellular/cellular_60.svg"),
+            Self::Cellular40 => include_str!("../svgs/cellular/cellular_40.svg"),
+            Self::Cellular20 => include_str!("../svgs/cellular/cellular_20.svg"),
+            Self::Cellular0 => include_str!("../svgs/cellular/cellular_0.svg"),
+            Self::CellularDisabled => include_str!("../svgs/cellular/cellular_disabled.svg"),
         }
     }
 }

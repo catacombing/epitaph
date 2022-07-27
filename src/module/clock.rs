@@ -2,7 +2,7 @@
 
 use chrono::offset::Local;
 
-use crate::module::{ModuleRun, Module};
+use crate::module::{Module, ModuleRun};
 
 pub struct Clock;
 

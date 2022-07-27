@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="99.999985mm"
+   height="92.637512mm"
+   viewBox="0 0 99.999985 92.637512"
+   version="1.1"
+   id="svg5"
+   xml:space="preserve"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg"><defs
+     id="defs9"><clipPath
+       clipPathUnits="userSpaceOnUse"
+       id="clipPath23518"><path
+         id="path23520"
+         style="display:none;fill:#ff00ff;stroke-width:4.99999;paint-order:markers fill stroke"
+         d="m 296.55331,586.0375 -11.2,8.40002 L 233.2,524.90002 244.39998,516.5 Z" /><path
+         id="lpe_path-effect23522"
+         style="fill:#ff00ff;stroke-width:4.99999;paint-order:markers fill stroke"
+         class="powerclip"
+         d="m 195,495 h 110 v 85 H 195 Z M 296.55331,586.0375 244.39998,516.5 233.2,524.90002 l 52.15331,69.5375 z" /></clipPath></defs><g
+     id="g23466"
+     transform="translate(-200.00001,-500.00002)"><path
+       style="fill:#666666;fill-opacity:1;stroke:none;stroke-width:4.99999;stroke-opacity:1;paint-order:markers fill stroke"
+       d="M 200,575 H 300 V 500 Z"
+       id="path5078-2-5-4-7-4"
+       clip-path="url(#clipPath23518)" /><rect
+       style="fill:#666666;fill-opacity:1;stroke-width:4.99999;paint-order:markers fill stroke"
+       id="rect591"
+       width="8"
+       height="86.921997"
+       x="117.381"
+       y="-646.76178"
+       transform="rotate(143.13)" /></g></svg>

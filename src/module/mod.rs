@@ -7,6 +7,7 @@ use crate::vertex::{GlVertex, VertexBatcher};
 use crate::{Renderer, Size};
 
 pub mod battery;
+pub mod cellular;
 pub mod clock;
 pub mod wifi;
 
