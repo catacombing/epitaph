@@ -55,7 +55,6 @@ impl<'a> ModuleRun<'a> {
 
         // Determine vertex offset from left screen edge.
         let x_offset = match self.alignment {
-            Alignment::Left => self.edge_padding(),
             Alignment::Center => (self.size.width as i16 - self.width) / 2,
             Alignment::Right => self.size.width as i16 - self.width - self.edge_padding(),
         };
@@ -125,7 +124,6 @@ impl<'a> ModuleRun<'a> {
 /// Module run alignment.
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum Alignment {
-    Left,
     Center,
     Right,
 }
