@@ -3,11 +3,11 @@ use std::ops::Mul;
 use std::process;
 use std::time::{Duration, Instant};
 
-use calloop::EventLoop;
+use calloop::timer::{TimeoutAction, Timer};
+use calloop::{EventLoop, LoopHandle};
 use smithay::backend::egl::context::GlAttributes;
-use smithay::backend::egl::display::EGLDisplay;
 use smithay::backend::egl::native::{EGLNativeDisplay, EGLPlatform};
-use smithay::backend::egl::{ffi, EGLContext, EGLSurface};
+use smithay::backend::egl::{self, ffi as egl_ffi, ffi};
 use smithay::egl_platform;
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState};
 use smithay_client_toolkit::event_loop::WaylandSource;
@@ -22,17 +22,20 @@ use smithay_client_toolkit::registry::{ProvidesRegistryState, RegistryState};
 use smithay_client_toolkit::seat::touch::TouchHandler;
 use smithay_client_toolkit::seat::{Capability, SeatHandler, SeatState};
 use smithay_client_toolkit::shell::layer::{
-    Anchor, Layer, LayerHandler, LayerState, LayerSurface, LayerSurfaceConfigure,
+    LayerHandler, LayerState, LayerSurface, LayerSurfaceConfigure,
 };
 use smithay_client_toolkit::{
     delegate_compositor, delegate_layer, delegate_output, delegate_registry, delegate_seat,
     delegate_touch, registry_handlers,
 };
-use wayland_egl::WlEglSurface;
 
+use crate::drawer::Drawer;
+use crate::panel::Panel;
 use crate::renderer::Renderer;
 
+mod drawer;
 mod module;
+mod panel;
 mod renderer;
 mod text;
 mod vertex;
@@ -43,14 +46,24 @@ mod gl {
 }
 
 /// Attributes for OpenGL context creation.
-const GL_ATTRIBUTES: GlAttributes =
+pub const GL_ATTRIBUTES: GlAttributes =
     GlAttributes { version: (2, 0), profile: None, debug: false, vsync: false };
 
 /// Maximum time between redraws.
 const FRAME_INTERVAL: Duration = Duration::from_secs(60);
 
-/// Panel height in pixels with a scale factor of 1.
-const PANEL_HEIGHT: i32 = 20;
+/// Time between drawer animation updates.
+const ANIMATION_INTERVAL: Duration = Duration::from_millis(1000 / 120);
+
+/// Height percentage when drawer animation starts opening instead
+/// of closing.
+const ANIMATION_THRESHOLD: f64 = 0.25;
+
+/// Step size for drawer animation.
+const ANIMATION_STEP: f64 = 20.;
+
+/// Percentage of height reserved at bottom of drawer for closing it.
+const DRAWER_CLOSE_PERCENTAGE: f64 = 0.95;
 
 fn main() {
     // Initialize Wayland connection.
@@ -62,12 +75,15 @@ fn main() {
         },
     };
     let mut queue = connection.new_event_queue();
-    let handle = queue.handle();
-
-    let mut state = State::new(&mut connection, &mut queue).expect("state setup");
 
     // Setup calloop event loop.
     let mut event_loop = EventLoop::try_new().expect("event loop creation");
+
+    // Setup shared state.
+    let mut state =
+        State::new(&mut connection, &mut queue, event_loop.handle()).expect("state setup");
+
+    // Insert wayland into calloop loop.
     let wayland_source = WaylandSource::new(queue).expect("wayland source creation");
     wayland_source.insert(event_loop.handle()).expect("wayland source registration");
 
@@ -85,130 +101,89 @@ fn main() {
         if now >= next_frame {
             next_frame = now + FRAME_INTERVAL;
 
-            let surface = state.window().wl_surface();
-            surface.frame(&handle, surface.clone()).expect("scheduled frame request");
-            surface.commit();
+            state.drawer().request_frame();
+            state.panel().request_frame();
         }
     }
 }
 
 /// Wayland protocol handler state.
-struct State {
+pub struct State {
+    event_loop: LoopHandle<'static, Self>,
     protocol_states: ProtocolStates,
+    active_touch: Option<i32>,
+    drawer_opening: bool,
+    drawer_offset: f64,
     terminated: bool,
-    factor: i32,
-    size: Size,
 
-    egl_context: Option<EGLContext>,
-    egl_surface: Option<EGLSurface>,
-    window: Option<LayerSurface>,
-    renderer: Option<Renderer>,
     touch: Option<WlTouch>,
+    drawer: Option<Drawer>,
+    panel: Option<Panel>,
 }
 
 impl State {
     fn new(
         connection: &mut Connection,
         queue: &mut EventQueue<Self>,
+        event_loop: LoopHandle<'static, Self>,
     ) -> Result<Self, Box<dyn Error>> {
         // Setup globals.
         let queue_handle = queue.handle();
         let protocol_states = ProtocolStates::new(connection, &queue_handle);
 
-        // Default to 1x1 initial size since 0x0 EGL surfaces are illegal.
-        let size = Size { width: 1, height: 1 };
-
         let mut state = Self {
-            factor: 1,
             protocol_states,
-            size,
-            egl_context: Default::default(),
-            egl_surface: Default::default(),
+            event_loop,
+            drawer_opening: Default::default(),
+            drawer_offset: Default::default(),
+            active_touch: Default::default(),
             terminated: Default::default(),
-            renderer: Default::default(),
-            window: Default::default(),
+            drawer: Default::default(),
             touch: Default::default(),
+            panel: Default::default(),
         };
 
         // Roundtrip to initialize globals.
         queue.blocking_dispatch(&mut state)?;
         queue.blocking_dispatch(&mut state)?;
 
-        state.init_window(connection, &queue_handle)?;
+        state.init_windows(connection, queue)?;
 
         Ok(state)
     }
 
-    /// Initialize the window and its EGL surface.
-    fn init_window(
+    /// Initialize the panel/drawer windows and their EGL surfaces.
+    fn init_windows(
         &mut self,
         connection: &mut Connection,
-        queue: &QueueHandle<Self>,
+        queue: &EventQueue<Self>,
     ) -> Result<(), Box<dyn Error>> {
-        // Initialize EGL context.
-        let native_display = NativeDisplay::new(connection.display());
-        let display = EGLDisplay::new(&native_display, None)?;
-        let context =
-            EGLContext::new_with_config(&display, GL_ATTRIBUTES, Default::default(), None)?;
+        // Setup OpenGL symbol loader.
+        unsafe {
+            egl_ffi::make_sure_egl_is_loaded()?;
+            gl::load_with(|symbol| egl::get_proc_address(symbol));
+        }
 
-        // Create the Wayland surface.
-        let surface = self.protocol_states.compositor.create_surface(queue)?;
+        // Setup panel window.
+        self.panel = Some(Panel::new(
+            connection,
+            &self.protocol_states.compositor,
+            queue.handle(),
+            &mut self.protocol_states.layer,
+        )?);
 
-        // Create the EGL surface.
-        let config = context.config_id();
-        let native_surface = WlEglSurface::new(surface.id(), self.size.width, self.size.height)?;
-        let pixel_format = context.pixel_format().ok_or_else(|| String::from("no pixel format"))?;
-        let egl_surface = EGLSurface::new(&display, pixel_format, config, native_surface, None)?;
-
-        // Create the window.
-        let window = LayerSurface::builder()
-            .anchor(Anchor::LEFT | Anchor::TOP | Anchor::RIGHT)
-            .exclusive_zone(PANEL_HEIGHT)
-            .size((0, PANEL_HEIGHT as u32))
-            .namespace("panel")
-            .map(queue, &mut self.protocol_states.layer, surface, Layer::Top)?;
-
-        // Initialize the renderer.
-        let renderer = Renderer::new(&context, &egl_surface, self.factor)?;
-
-        self.egl_surface = Some(egl_surface);
-        self.egl_context = Some(context);
-        self.renderer = Some(renderer);
-        self.window = Some(window);
+        // Setup drawer window.
+        self.drawer = Some(Drawer::new(connection, queue.handle())?);
 
         Ok(())
     }
 
-    /// Render the application state.
-    fn draw(&mut self) {
-        if let Err(error) = self.renderer().draw() {
-            eprintln!("Rendering failed: {:?}", error);
-        }
-
-        if let Err(error) = self.egl_surface().swap_buffers(None) {
-            eprintln!("Buffer swap failed: {:?}", error);
-        }
+    fn drawer(&mut self) -> &mut Drawer {
+        self.drawer.as_mut().expect("Drawer window access before initialization")
     }
 
-    fn resize(&mut self, size: Size) {
-        self.size = size;
-
-        let scale_factor = self.factor;
-        self.egl_surface().resize(size.width, size.height, 0, 0);
-        self.renderer().resize(size, scale_factor);
-        self.draw();
-    }
-
-    fn egl_surface(&self) -> &EGLSurface {
-        self.egl_surface.as_ref().expect("EGL surface access before initialization")
-    }
-
-    fn renderer(&mut self) -> &mut Renderer {
-        self.renderer.as_mut().expect("Renderer access before initialization")
-    }
-
-    fn window(&self) -> &LayerSurface {
-        self.window.as_ref().expect("Window access before initialization")
+    fn panel(&mut self) -> &mut Panel {
+        self.panel.as_mut().expect("Panel window access before initialization")
     }
 }
 
@@ -229,25 +204,33 @@ impl CompositorHandler for State {
         &mut self,
         _connection: &Connection,
         _queue: &QueueHandle<Self>,
-        _surface: &WlSurface,
+        surface: &WlSurface,
         factor: i32,
     ) {
-        self.window().wl_surface().set_buffer_scale(factor);
-
-        let factor_change = factor as f64 / self.factor as f64;
-        self.factor = factor;
-
-        self.resize(self.size * factor_change);
+        if self.panel().owns_surface(surface) {
+            self.panel().set_scale_factor(factor);
+        } else if self.drawer().owns_surface(surface) {
+            self.drawer().set_scale_factor(factor);
+        }
     }
 
     fn frame(
         &mut self,
         _connection: &Connection,
         _queue: &QueueHandle<Self>,
-        _surface: &WlSurface,
+        surface: &WlSurface,
         _time: u32,
     ) {
-        self.draw();
+        if self.panel().owns_surface(surface) {
+            if let Err(error) = self.panel().draw() {
+                eprintln!("Panel rendering failed: {:?}", error);
+            }
+        } else if self.drawer().owns_surface(surface) {
+            let offset = self.drawer_offset;
+            if let Err(error) = self.drawer().draw(offset) {
+                eprintln!("Drawer rendering failed: {:?}", error);
+            }
+        }
     }
 }
 
@@ -294,15 +277,15 @@ impl LayerHandler for State {
         &mut self,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
-        _layer: &LayerSurface,
+        layer: &LayerSurface,
         configure: LayerSurfaceConfigure,
         _serial: u32,
     ) {
-        let new_width = configure.new_size.0 as i32;
-        let size = Size::new(new_width, PANEL_HEIGHT) * self.factor as f64;
-        self.resize(size);
-
-        self.draw();
+        if self.panel().owns_surface(layer.wl_surface()) {
+            self.panel().reconfigure(configure);
+        } else if self.drawer().owns_surface(layer.wl_surface()) {
+            self.drawer().reconfigure(configure);
+        }
     }
 }
 
@@ -350,10 +333,27 @@ impl TouchHandler for State {
         _touch: &WlTouch,
         _serial: u32,
         _time: u32,
-        _surface: WlSurface,
-        _id: i32,
-        _position: (f64, f64),
+        surface: WlSurface,
+        id: i32,
+        position: (f64, f64),
     ) {
+        if self.active_touch.is_none() && self.panel().owns_surface(&surface) {
+            let compositor = &self.protocol_states.compositor;
+            let layer_state = &mut self.protocol_states.layer;
+            if let Err(err) = self.drawer.as_mut().unwrap().show(compositor, layer_state) {
+                eprintln!("Error: Couldn't open drawer: {}", err);
+            }
+
+            self.drawer_offset = position.1;
+            self.active_touch = Some(id);
+            self.drawer_opening = true;
+        } else if self.drawer().owns_surface(&surface)
+            && position.1 >= self.drawer().max_offset() * DRAWER_CLOSE_PERCENTAGE
+        {
+            self.drawer_offset = position.1;
+            self.active_touch = Some(id);
+            self.drawer_opening = false;
+        }
     }
 
     fn up(
@@ -363,8 +363,15 @@ impl TouchHandler for State {
         _touch: &WlTouch,
         _serial: u32,
         _time: u32,
-        _id: i32,
+        id: i32,
     ) {
+        if self.active_touch == Some(id) {
+            self.active_touch = None;
+
+            // Start drawer animation.
+            let timer = Timer::from_duration(ANIMATION_INTERVAL);
+            let _ = self.event_loop.insert_source(timer, animate_drawer);
+        }
     }
 
     fn motion(
@@ -373,9 +380,13 @@ impl TouchHandler for State {
         _queue: &QueueHandle<Self>,
         _touch: &WlTouch,
         _time: u32,
-        _id: i32,
-        _position: (f64, f64),
+        id: i32,
+        position: (f64, f64),
     ) {
+        if self.active_touch == Some(id) {
+            self.drawer_offset = position.1;
+            self.drawer().request_frame();
+        }
     }
 
     fn cancel(&mut self, _connection: &Connection, _queue: &QueueHandle<Self>, _touch: &WlTouch) {}
@@ -476,5 +487,37 @@ impl EGLNativeDisplay for NativeDisplay {
             egl_platform!(PLATFORM_WAYLAND_KHR, display, &["EGL_KHR_platform_wayland"]),
             egl_platform!(PLATFORM_WAYLAND_EXT, display, &["EGL_EXT_platform_wayland"]),
         ]
+    }
+}
+
+/// Drawer animation frame.
+fn animate_drawer(now: Instant, _: &mut (), state: &mut State) -> TimeoutAction {
+    // Compute threshold beyond which motion will automatically be completed.
+    let max_offset = state.drawer().max_offset();
+    let threshold = if state.drawer_opening {
+        max_offset * ANIMATION_THRESHOLD
+    } else {
+        max_offset - max_offset * ANIMATION_THRESHOLD
+    };
+
+    // Update drawer position.
+    if state.drawer_offset >= threshold {
+        state.drawer_offset += ANIMATION_STEP;
+    } else {
+        state.drawer_offset -= ANIMATION_STEP;
+    }
+
+    if state.drawer_offset <= 0. {
+        state.drawer().hide();
+
+        TimeoutAction::Drop
+    } else if state.drawer_offset >= state.drawer().max_offset() {
+        state.drawer().request_frame();
+
+        TimeoutAction::Drop
+    } else {
+        state.drawer().request_frame();
+
+        TimeoutAction::ToInstant(now + ANIMATION_INTERVAL)
     }
 }

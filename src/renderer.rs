@@ -4,14 +4,9 @@ use std::error::Error;
 use std::result::Result as StdResult;
 use std::{mem, ptr};
 
-use smithay::backend::egl::{self, EGLContext, EGLSurface};
+use smithay::backend::egl::{EGLContext, EGLSurface};
 
-use crate::gl::types::{GLfloat, GLshort};
-use crate::module::battery::Battery;
-use crate::module::cellular::Cellular;
-use crate::module::clock::Clock;
-use crate::module::wifi::Wifi;
-use crate::module::{Alignment, ModuleRun};
+use crate::gl::types::{GLfloat, GLshort, GLuint};
 use crate::text::GlRasterizer;
 use crate::vertex::{GlVertex, VertexBatcher};
 use crate::{gl, Size};
@@ -41,11 +36,18 @@ pub struct Renderer {
     pub rasterizer: GlRasterizer,
     pub scale_factor: i32,
     pub size: Size<f32>,
+
+    egl_surface: Option<EGLSurface>,
+    egl_context: EGLContext,
+    program: GLuint,
+    vao: GLuint,
+    vbo: GLuint,
+    ebo: GLuint,
 }
 
 impl Renderer {
     /// Initialize a new renderer.
-    pub fn new(context: &EGLContext, surface: &EGLSurface, scale_factor: i32) -> Result<Self> {
+    pub fn new(egl_context: EGLContext, scale_factor: i32) -> Result<Self> {
         // Create buffer with all possible vertex indices.
         let mut vertex_indices = Vec::with_capacity(BATCH_MAX / 4 * 6);
         for index in 0..(BATCH_MAX / 4) as u16 {
@@ -60,11 +62,8 @@ impl Renderer {
         }
 
         unsafe {
-            // Setup OpenGL symbol loader.
-            gl::load_with(|symbol| egl::get_proc_address(symbol));
-
             // Enable the OpenGL context.
-            context.make_current_with_surface(surface)?;
+            egl_context.make_current()?;
 
             // Create vertex shader.
             let vertex_shader = gl::CreateShader(gl::VERTEX_SHADER);
@@ -92,9 +91,6 @@ impl Renderer {
             gl::AttachShader(program, fragment_shader);
             gl::LinkProgram(program);
             gl::UseProgram(program);
-
-            let mut success = 0;
-            gl::GetProgramiv(program, gl::LINK_STATUS, &mut success);
 
             // Generate VAO.
             let mut vao = 0;
@@ -163,18 +159,28 @@ impl Renderer {
             gl::ClearColor(0.1, 0.1, 0.1, 1.0);
             gl::Enable(gl::BLEND);
             gl::BlendFunc(gl::SRC1_COLOR_EXT, gl::ONE_MINUS_SRC1_COLOR_EXT);
-        }
 
-        Ok(Renderer {
-            scale_factor,
-            rasterizer: GlRasterizer::new(FONT, FONT_SIZE, scale_factor)?,
-            batcher: Default::default(),
-            size: Default::default(),
-        })
+            Ok(Renderer {
+                scale_factor,
+                egl_context,
+                program,
+                vao,
+                vbo,
+                ebo,
+                rasterizer: GlRasterizer::new(FONT, FONT_SIZE, scale_factor)?,
+                egl_surface: Default::default(),
+                batcher: Default::default(),
+                size: Default::default(),
+            })
+        }
     }
 
     /// Update viewport size.
-    pub fn resize(&mut self, size: Size, scale_factor: i32) {
+    pub fn resize(&mut self, size: Size, scale_factor: i32) -> Result<()> {
+        let egl_surface = self.bind()?;
+
+        egl_surface.resize(size.width, size.height, 0, 0);
+
         unsafe { gl::Viewport(0, 0, size.width, size.height) };
         self.size = size.into();
 
@@ -191,28 +197,50 @@ impl Renderer {
         // Update rasterizer's scale factor.
         self.rasterizer.set_scale_factor(scale_factor);
         self.scale_factor = scale_factor;
+
+        Ok(())
     }
 
-    /// Render all passed icon textures.
-    pub fn draw(&mut self) -> Result<()> {
-        unsafe {
-            gl::Clear(gl::COLOR_BUFFER_BIT);
+    /// Perform drawing with this renderer.
+    pub fn draw<F: FnMut(&mut Renderer) -> Result<()>>(&mut self, mut fun: F) -> Result<()> {
+        self.bind()?;
 
-            // Center-aligned modules.
-            let mut center = ModuleRun::new(self, Alignment::Center)?;
-            center.insert(Clock);
-            center.draw();
+        fun(self)?;
 
-            // Right-aligned modules.
-            let mut right = ModuleRun::new(self, Alignment::Right)?;
-            right.insert(Cellular);
-            right.insert(Wifi);
-            right.insert(Battery);
-            right.draw();
+        unsafe { gl::Flush() };
 
-            gl::Flush();
+        if let Some(egl_surface) = &self.egl_surface {
+            egl_surface.swap_buffers(None)?;
         }
 
         Ok(())
+    }
+
+    /// Get the renderer's EGL context.
+    pub fn egl_context(&self) -> &EGLContext {
+        &self.egl_context
+    }
+
+    /// Update the renderer's active EGL surface.
+    pub fn set_surface(&mut self, egl_surface: Option<EGLSurface>) {
+        self.egl_surface = egl_surface;
+    }
+
+    /// Bind this renderer's program and buffers.
+    fn bind(&self) -> Result<&EGLSurface> {
+        let egl_surface = match &self.egl_surface {
+            Some(egl_surface) => egl_surface,
+            None => return Err("Attempted to bind EGL context without surface".into()),
+        };
+
+        unsafe {
+            self.egl_context.make_current_with_surface(egl_surface)?;
+            gl::UseProgram(self.program);
+            gl::BindVertexArrayOES(self.vao);
+            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.ebo);
+            gl::BindBuffer(gl::ARRAY_BUFFER, self.vbo);
+        }
+
+        Ok(egl_surface)
     }
 }
