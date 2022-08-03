@@ -3,7 +3,8 @@
 use std::fs;
 use std::str::FromStr;
 
-use crate::module::{Module, ModuleRun};
+use crate::module::{Alignment, Module};
+use crate::panel::ModuleRun;
 use crate::text::Svg;
 
 /// Sysfs path for retrieving battery capacity.
@@ -17,7 +18,11 @@ const STATUS_PATH: &str = "/sys/devices/platform/soc/1f03400.rsb/sunxi-rsb-3a3/\
 pub struct Battery;
 
 impl Module for Battery {
-    fn insert(&self, run: &mut ModuleRun) {
+    fn alignment(&self) -> Option<Alignment> {
+        Some(Alignment::Right)
+    }
+
+    fn panel_insert(&self, run: &mut ModuleRun) {
         let charging =
             fs::read_to_string(STATUS_PATH).map_or(false, |status| status.trim() == "Charging");
         let capacity = fs::read_to_string(CAPACITY_PATH)

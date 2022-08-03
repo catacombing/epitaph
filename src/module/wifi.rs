@@ -3,13 +3,27 @@
 use std::process::{Command, Stdio};
 use std::str::FromStr;
 
-use crate::module::{Module, ModuleRun};
+use crate::module::{Alignment, Module};
+use crate::panel::ModuleRun;
 use crate::text::Svg;
 
-pub struct Wifi;
+#[derive(Default)]
+pub struct Wifi {
+    enabled: bool,
+}
+
+impl Wifi {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
 
 impl Module for Wifi {
-    fn insert(&self, run: &mut ModuleRun) {
+    fn alignment(&self) -> Option<Alignment> {
+        Some(Alignment::Right)
+    }
+
+    fn panel_insert(&self, run: &mut ModuleRun) {
         let iw = Command::new("iw").args(&["dev", "wlan0", "link"]).output();
         let stdout = match iw {
             Ok(iw) => iw.stdout,
@@ -58,5 +72,18 @@ impl Module for Wifi {
             (false, _) => Svg::WifiDisconnected25,
         };
         run.batch_svg(svg);
+    }
+
+    fn drawer_button(&self) -> Option<(Svg, bool)> {
+        let svg = if self.enabled { Svg::WifiConnected100 } else { Svg::WifiDisabled };
+        Some((svg, self.enabled))
+    }
+
+    fn toggle(&mut self) {
+        self.enabled = !self.enabled;
+
+        // Set device wifi state.
+        let status = if self.enabled { "on" } else { "off" };
+        let _ = Command::new("nmcli").args(&["radio", "wifi", status]).spawn();
     }
 }

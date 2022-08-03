@@ -3,13 +3,27 @@
 use std::process::Command;
 use std::str::FromStr;
 
-use crate::module::{Module, ModuleRun};
+use crate::module::{Alignment, Module};
+use crate::panel::ModuleRun;
 use crate::text::Svg;
 
-pub struct Cellular;
+#[derive(Default)]
+pub struct Cellular {
+    enabled: bool,
+}
+
+impl Cellular {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
 
 impl Module for Cellular {
-    fn insert(&self, run: &mut ModuleRun) {
+    fn alignment(&self) -> Option<Alignment> {
+        Some(Alignment::Right)
+    }
+
+    fn panel_insert(&self, run: &mut ModuleRun) {
         let iw = Command::new("mmcli").args(&["-m", "0", "--signal-get"]).output();
         let stdout = match iw {
             Ok(iw) => iw.stdout,
@@ -49,5 +63,18 @@ impl Module for Cellular {
             _ => Svg::Cellular0,
         };
         run.batch_svg(svg);
+    }
+
+    fn drawer_button(&self) -> Option<(Svg, bool)> {
+        let svg = if self.enabled { Svg::Cellular100 } else { Svg::CellularDisabled };
+        Some((svg, self.enabled))
+    }
+
+    fn toggle(&mut self) {
+        self.enabled = !self.enabled;
+
+        // Set device cellular state.
+        let status = if self.enabled { "-e" } else { "-d" };
+        let _ = Command::new("mmcli").args(&["-m", "0", status]).spawn();
     }
 }

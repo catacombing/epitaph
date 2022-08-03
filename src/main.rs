@@ -30,8 +30,12 @@ use smithay_client_toolkit::{
 };
 
 use crate::drawer::Drawer;
+use crate::module::battery::Battery;
+use crate::module::cellular::Cellular;
+use crate::module::clock::Clock;
+use crate::module::wifi::Wifi;
+use crate::module::Module;
 use crate::panel::Panel;
-use crate::renderer::Renderer;
 
 mod drawer;
 mod module;
@@ -111,6 +115,7 @@ fn main() {
 pub struct State {
     event_loop: LoopHandle<'static, Self>,
     protocol_states: ProtocolStates,
+    modules: Vec<Box<dyn Module>>,
     active_touch: Option<i32>,
     drawer_opening: bool,
     drawer_offset: f64,
@@ -131,9 +136,18 @@ impl State {
         let queue_handle = queue.handle();
         let protocol_states = ProtocolStates::new(connection, &queue_handle);
 
+        // Initialize panel modules.
+        let modules: Vec<Box<dyn Module>> = vec![
+            Box::new(Cellular::new()),
+            Box::new(Wifi::new()),
+            Box::new(Battery),
+            Box::new(Clock),
+        ];
+
         let mut state = Self {
             protocol_states,
             event_loop,
+            modules,
             drawer_opening: Default::default(),
             drawer_offset: Default::default(),
             active_touch: Default::default(),
@@ -178,6 +192,20 @@ impl State {
         Ok(())
     }
 
+    /// Draw window associated with the surface.
+    fn draw(&mut self, surface: &WlSurface) {
+        if self.panel().owns_surface(surface) {
+            if let Err(error) = self.panel.as_mut().unwrap().draw(&self.modules) {
+                eprintln!("Panel rendering failed: {:?}", error);
+            }
+        } else if self.drawer().owns_surface(surface) {
+            let drawer = self.drawer.as_mut().unwrap();
+            if let Err(error) = drawer.draw(&self.modules, self.drawer_offset) {
+                eprintln!("Drawer rendering failed: {:?}", error);
+            }
+        }
+    }
+
     fn drawer(&mut self) -> &mut Drawer {
         self.drawer.as_mut().expect("Drawer window access before initialization")
     }
@@ -212,6 +240,7 @@ impl CompositorHandler for State {
         } else if self.drawer().owns_surface(surface) {
             self.drawer().set_scale_factor(factor);
         }
+        self.draw(surface);
     }
 
     fn frame(
@@ -221,16 +250,7 @@ impl CompositorHandler for State {
         surface: &WlSurface,
         _time: u32,
     ) {
-        if self.panel().owns_surface(surface) {
-            if let Err(error) = self.panel().draw() {
-                eprintln!("Panel rendering failed: {:?}", error);
-            }
-        } else if self.drawer().owns_surface(surface) {
-            let offset = self.drawer_offset;
-            if let Err(error) = self.drawer().draw(offset) {
-                eprintln!("Drawer rendering failed: {:?}", error);
-            }
-        }
+        self.draw(surface);
     }
 }
 
@@ -281,11 +301,13 @@ impl LayerHandler for State {
         configure: LayerSurfaceConfigure,
         _serial: u32,
     ) {
-        if self.panel().owns_surface(layer.wl_surface()) {
+        let surface = layer.wl_surface();
+        if self.panel().owns_surface(surface) {
             self.panel().reconfigure(configure);
-        } else if self.drawer().owns_surface(layer.wl_surface()) {
+        } else if self.drawer().owns_surface(surface) {
             self.drawer().reconfigure(configure);
         }
+        self.draw(surface);
     }
 }
 
@@ -347,12 +369,14 @@ impl TouchHandler for State {
             self.drawer_offset = position.1;
             self.active_touch = Some(id);
             self.drawer_opening = true;
-        } else if self.drawer().owns_surface(&surface)
-            && position.1 >= self.drawer().max_offset() * DRAWER_CLOSE_PERCENTAGE
-        {
-            self.drawer_offset = position.1;
-            self.active_touch = Some(id);
-            self.drawer_opening = false;
+        } else if self.drawer().owns_surface(&surface) {
+            if position.1 >= self.drawer().max_offset() * DRAWER_CLOSE_PERCENTAGE {
+                self.drawer_offset = position.1;
+                self.active_touch = Some(id);
+                self.drawer_opening = false;
+            } else {
+                self.drawer().touch_down(id, position);
+            }
         }
     }
 
@@ -371,6 +395,8 @@ impl TouchHandler for State {
             // Start drawer animation.
             let timer = Timer::from_duration(ANIMATION_INTERVAL);
             let _ = self.event_loop.insert_source(timer, animate_drawer);
+        } else {
+            self.drawer.as_mut().unwrap().touch_up(id, &mut self.modules);
         }
     }
 
@@ -386,6 +412,8 @@ impl TouchHandler for State {
         if self.active_touch == Some(id) {
             self.drawer_offset = position.1;
             self.drawer().request_frame();
+        } else {
+            self.drawer().touch_motion(id, position);
         }
     }
 

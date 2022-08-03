@@ -129,7 +129,7 @@ impl GlRasterizer {
     }
 
     /// Rasterize an SVG from its text.
-    pub fn rasterize_svg(&mut self, svg: Svg) -> Result<GlSubTexture> {
+    pub fn rasterize_svg(&mut self, svg: Svg, target_width: u32) -> Result<GlSubTexture> {
         // Try to lead svg from cache.
         let entry = match self.cache.entry(svg.into()) {
             Entry::Occupied(entry) => return Ok(*entry.get()),
@@ -137,8 +137,9 @@ impl GlRasterizer {
         };
 
         let (mut width, mut height) = svg.size();
-        width *= self.scale_factor as u32;
-        height *= self.scale_factor as u32;
+        let scale = target_width as f64 / width as f64;
+        width = (width as f64 * self.scale_factor as f64 * scale) as u32;
+        height = (height as f64 * self.scale_factor as f64 * scale) as u32;
 
         // Setup target buffer.
         let mut pixmap = Pixmap::new(width, height)
@@ -462,22 +463,24 @@ pub enum Svg {
     Cellular20,
     Cellular0,
     CellularDisabled,
+    ButtonOn,
+    ButtonOff,
 }
 
 impl Svg {
     /// Get SVG's dimensions.
     pub const fn size(&self) -> (u32, u32) {
         match self {
-            Self::BatteryCharging100 => (22, 14),
-            Self::BatteryCharging80 => (22, 14),
-            Self::BatteryCharging60 => (22, 14),
-            Self::BatteryCharging40 => (22, 14),
-            Self::BatteryCharging20 => (22, 14),
-            Self::Battery100 => (22, 8),
-            Self::Battery80 => (22, 8),
-            Self::Battery60 => (22, 8),
-            Self::Battery40 => (22, 8),
-            Self::Battery20 => (22, 8),
+            Self::BatteryCharging100 => (20, 13),
+            Self::BatteryCharging80 => (20, 13),
+            Self::BatteryCharging60 => (20, 13),
+            Self::BatteryCharging40 => (20, 13),
+            Self::BatteryCharging20 => (20, 13),
+            Self::Battery100 => (20, 7),
+            Self::Battery80 => (20, 7),
+            Self::Battery60 => (20, 7),
+            Self::Battery40 => (20, 7),
+            Self::Battery20 => (20, 7),
             Self::WifiConnected100 => (20, 14),
             Self::WifiConnected75 => (20, 14),
             Self::WifiConnected50 => (20, 14),
@@ -494,6 +497,8 @@ impl Svg {
             Self::Cellular20 => (20, 15),
             Self::Cellular0 => (20, 15),
             Self::CellularDisabled => (20, 18),
+            Self::ButtonOn => (1, 1),
+            Self::ButtonOff => (1, 1),
         }
     }
 
@@ -526,6 +531,8 @@ impl Svg {
             Self::Cellular20 => include_str!("../svgs/cellular/cellular_20.svg"),
             Self::Cellular0 => include_str!("../svgs/cellular/cellular_0.svg"),
             Self::CellularDisabled => include_str!("../svgs/cellular/cellular_disabled.svg"),
+            Self::ButtonOn => include_str!("../svgs/button_on.svg"),
+            Self::ButtonOff => include_str!("../svgs/button_off.svg"),
         }
     }
 }
