@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::ops::Mul;
 use std::process;
+use std::result::Result as StdResult;
 use std::time::{Duration, Instant};
 
 use calloop::timer::{TimeoutAction, Timer};
@@ -36,10 +37,12 @@ use crate::module::clock::Clock;
 use crate::module::wifi::Wifi;
 use crate::module::Module;
 use crate::panel::Panel;
+use crate::reaper::Reaper;
 
 mod drawer;
 mod module;
 mod panel;
+mod reaper;
 mod renderer;
 mod text;
 mod vertex;
@@ -53,9 +56,6 @@ mod gl {
 pub const GL_ATTRIBUTES: GlAttributes =
     GlAttributes { version: (2, 0), profile: None, debug: false, vsync: false };
 
-/// Maximum time between redraws.
-const FRAME_INTERVAL: Duration = Duration::from_secs(60);
-
 /// Time between drawer animation updates.
 const ANIMATION_INTERVAL: Duration = Duration::from_millis(1000 / 120);
 
@@ -68,6 +68,9 @@ const ANIMATION_STEP: f64 = 20.;
 
 /// Percentage of height reserved at bottom of drawer for closing it.
 const DRAWER_CLOSE_PERCENTAGE: f64 = 0.95;
+
+/// Convenience result wrapper.
+pub type Result<T> = StdResult<T, Box<dyn Error>>;
 
 fn main() {
     // Initialize Wayland connection.
@@ -92,22 +95,9 @@ fn main() {
     wayland_source.insert(event_loop.handle()).expect("wayland source registration");
 
     // Start event loop.
-    let mut next_frame = Instant::now() + FRAME_INTERVAL;
     while !state.terminated {
-        // Calculate upper bound for event queue dispatch timeout.
-        let timeout = next_frame.saturating_duration_since(Instant::now());
-
         // Dispatch Wayland & Calloop event queue.
-        event_loop.dispatch(Some(timeout), &mut state).expect("event dispatch");
-
-        // Request redraw when `FRAME_INTERVAL` was reached.
-        let now = Instant::now();
-        if now >= next_frame {
-            next_frame = now + FRAME_INTERVAL;
-
-            state.drawer().request_frame();
-            state.panel().request_frame();
-        }
+        event_loop.dispatch(None, &mut state).expect("event dispatch");
     }
 }
 
@@ -115,11 +105,12 @@ fn main() {
 pub struct State {
     event_loop: LoopHandle<'static, Self>,
     protocol_states: ProtocolStates,
-    modules: Vec<Box<dyn Module>>,
     active_touch: Option<i32>,
     drawer_opening: bool,
     drawer_offset: f64,
+    modules: Modules,
     terminated: bool,
+    reaper: Reaper,
 
     touch: Option<WlTouch>,
     drawer: Option<Drawer>,
@@ -131,23 +122,22 @@ impl State {
         connection: &mut Connection,
         queue: &mut EventQueue<Self>,
         event_loop: LoopHandle<'static, Self>,
-    ) -> Result<Self, Box<dyn Error>> {
+    ) -> Result<Self> {
         // Setup globals.
         let queue_handle = queue.handle();
         let protocol_states = ProtocolStates::new(connection, &queue_handle);
 
         // Initialize panel modules.
-        let modules: Vec<Box<dyn Module>> = vec![
-            Box::new(Cellular::new()),
-            Box::new(Wifi::new()),
-            Box::new(Battery),
-            Box::new(Clock),
-        ];
+        let modules = Modules::new(&event_loop)?;
+
+        // Create process reaper.
+        let reaper = Reaper::new(&event_loop)?;
 
         let mut state = Self {
             protocol_states,
             event_loop,
             modules,
+            reaper,
             drawer_opening: Default::default(),
             drawer_offset: Default::default(),
             active_touch: Default::default(),
@@ -171,7 +161,7 @@ impl State {
         &mut self,
         connection: &mut Connection,
         queue: &EventQueue<Self>,
-    ) -> Result<(), Box<dyn Error>> {
+    ) -> Result<()> {
         // Setup OpenGL symbol loader.
         unsafe {
             egl_ffi::make_sure_egl_is_loaded()?;
@@ -195,15 +185,21 @@ impl State {
     /// Draw window associated with the surface.
     fn draw(&mut self, surface: &WlSurface) {
         if self.panel().owns_surface(surface) {
-            if let Err(error) = self.panel.as_mut().unwrap().draw(&self.modules) {
+            if let Err(error) = self.panel.as_mut().unwrap().draw(&self.modules.as_slice()) {
                 eprintln!("Panel rendering failed: {:?}", error);
             }
         } else if self.drawer().owns_surface(surface) {
             let drawer = self.drawer.as_mut().unwrap();
-            if let Err(error) = drawer.draw(&self.modules, self.drawer_offset) {
+            if let Err(error) = drawer.draw(&self.modules.as_slice(), self.drawer_offset) {
                 eprintln!("Drawer rendering failed: {:?}", error);
             }
         }
+    }
+
+    /// Request new frame for all windows.
+    fn request_frame(&mut self) {
+        self.drawer().request_frame();
+        self.panel().request_frame();
     }
 
     fn drawer(&mut self) -> &mut Drawer {
@@ -393,10 +389,10 @@ impl TouchHandler for State {
             self.active_touch = None;
 
             // Start drawer animation.
-            let timer = Timer::from_duration(ANIMATION_INTERVAL);
-            let _ = self.event_loop.insert_source(timer, animate_drawer);
+            let _ = self.event_loop.insert_source(Timer::immediate(), animate_drawer);
         } else {
-            self.drawer.as_mut().unwrap().touch_up(id, &mut self.modules);
+            self.drawer.as_mut().unwrap().touch_up(id, &mut self.modules.as_slice_mut());
+            self.request_frame();
         }
     }
 
@@ -467,6 +463,35 @@ impl ProtocolStates {
             layer: LayerState::new(),
             seat: SeatState::new(),
         }
+    }
+}
+
+/// Panel modules.
+struct Modules {
+    cellular: Cellular,
+    battery: Battery,
+    clock: Clock,
+    wifi: Wifi,
+}
+
+impl Modules {
+    fn new(event_loop: &LoopHandle<'static, State>) -> Result<Self> {
+        Ok(Self {
+            cellular: Cellular::new(event_loop)?,
+            battery: Battery::new(event_loop)?,
+            clock: Clock::new(event_loop)?,
+            wifi: Wifi::new(event_loop)?,
+        })
+    }
+
+    /// Get all modules as sorted immutable slice.
+    fn as_slice(&self) -> [&dyn Module; 4] {
+        [&self.clock, &self.cellular, &self.wifi, &self.battery]
+    }
+
+    /// Get all modules as sorted mutable slice.
+    fn as_slice_mut(&mut self) -> [&mut dyn Module; 4] {
+        [&mut self.clock, &mut self.cellular, &mut self.wifi, &mut self.battery]
     }
 }
 

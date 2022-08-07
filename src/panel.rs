@@ -1,8 +1,5 @@
 //! Panel window state.
 
-use std::error::Error;
-use std::result::Result as StdResult;
-
 use crossfont::Metrics;
 use smithay::backend::egl::display::EGLDisplay;
 use smithay::backend::egl::{EGLContext, EGLSurface};
@@ -18,7 +15,7 @@ use crate::module::{Alignment, Module};
 use crate::renderer::Renderer;
 use crate::text::{GlRasterizer, Svg};
 use crate::vertex::{GlVertex, VertexBatcher};
-use crate::{gl, NativeDisplay, Size, State, GL_ATTRIBUTES};
+use crate::{gl, NativeDisplay, Result, Size, State, GL_ATTRIBUTES};
 
 /// Panel height in pixels with a scale factor of 1.
 pub const PANEL_HEIGHT: i32 = 20;
@@ -31,9 +28,6 @@ const EDGE_PADDING: i16 = 5;
 
 /// Padding between panel modules.
 const MODULE_PADDING: i16 = 5;
-
-/// Convenience result wrapper.
-type Result<T> = StdResult<T, Box<dyn Error>>;
 
 pub struct Panel {
     queue: QueueHandle<State>,
@@ -86,7 +80,7 @@ impl Panel {
     }
 
     /// Render the panel.
-    pub fn draw(&mut self, modules: &[Box<dyn Module>]) -> Result<()> {
+    pub fn draw(&mut self, modules: &[&dyn Module]) -> Result<()> {
         self.frame_pending = false;
 
         self.renderer.draw(|renderer| unsafe {
@@ -99,7 +93,7 @@ impl Panel {
     /// Render just the panel modules.
     pub fn draw_modules(
         renderer: &mut Renderer,
-        modules: &[Box<dyn Module>],
+        modules: &[&dyn Module],
         size: Size<f32>,
     ) -> Result<()> {
         for alignment in [Alignment::Center, Alignment::Right] {

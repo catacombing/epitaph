@@ -3,8 +3,6 @@
 use std::borrow::Cow;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::error::Error;
-use std::result::Result as StdResult;
 use std::{cmp, mem, ptr};
 
 use crossfont::{
@@ -14,14 +12,11 @@ use crossfont::{
 use tiny_skia::{Pixmap, Transform};
 use usvg::{FitTo, Options, Tree};
 
-use crate::gl;
 use crate::gl::types::GLuint;
+use crate::{gl, Result};
 
 /// Width and height of the glyph atlas texture.
 const ATLAS_SIZE: i32 = 1024;
-
-/// Convenience result wrapper.
-type Result<T> = StdResult<T, Box<dyn Error>>;
 
 /// Cached OpenGL rasterization.
 pub struct GlRasterizer {

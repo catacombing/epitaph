@@ -1,8 +1,5 @@
 //! Drawer window state.
 
-use std::error::Error;
-use std::result::Result as StdResult;
-
 use smithay::backend::egl::display::EGLDisplay;
 use smithay::backend::egl::{EGLContext, EGLSurface};
 use smithay_client_toolkit::compositor::CompositorState;
@@ -18,7 +15,7 @@ use crate::panel::PANEL_HEIGHT;
 use crate::renderer::Renderer;
 use crate::text::{GlRasterizer, Svg};
 use crate::vertex::{GlVertex, VertexBatcher};
-use crate::{gl, NativeDisplay, Size, State, GL_ATTRIBUTES};
+use crate::{gl, NativeDisplay, Result, Size, State, GL_ATTRIBUTES};
 
 /// Padding between drawer modules.
 const MODULE_PADDING: i16 = 16;
@@ -31,9 +28,6 @@ const MODULE_SIZE: i16 = 64;
 
 /// Drawer module icon width.
 const ICON_WIDTH: u32 = 32;
-
-/// Convenience result wrapper.
-type Result<T> = StdResult<T, Box<dyn Error>>;
 
 pub struct Drawer {
     window: Option<LayerSurface>,
@@ -119,7 +113,7 @@ impl Drawer {
     }
 
     /// Render the panel.
-    pub fn draw(&mut self, modules: &[Box<dyn Module>], mut offset: f64) -> Result<()> {
+    pub fn draw(&mut self, modules: &[&dyn Module], mut offset: f64) -> Result<()> {
         offset = (offset * self.scale_factor as f64).min(self.size.height as f64);
         self.frame_pending = false;
 
@@ -131,21 +125,15 @@ impl Drawer {
             gl::Clear(gl::COLOR_BUFFER_BIT);
 
             // Setup drawer to render at correct offset.
+            let drawer_height = self.size.height - PANEL_HEIGHT * renderer.scale_factor;
             let y_offset = (self.size.height as f64 - offset) as i32;
             gl::Enable(gl::SCISSOR_TEST);
-            gl::Scissor(0, y_offset, self.size.width, self.size.height);
+            gl::Scissor(0, y_offset, self.size.width, drawer_height);
             gl::Viewport(0, y_offset, self.size.width, self.size.height);
 
             // Draw background for the offset viewport.
             gl::ClearColor(0.1, 0.1, 0.1, 1.0);
             gl::Clear(gl::COLOR_BUFFER_BIT);
-
-            // TODO: Enable when modules are updated without blocking.
-            //
-            // Draw panel at top of drawer.
-            // let mut size = renderer.size;
-            // size.height = (PANEL_HEIGHT * renderer.scale_factor) as f32;
-            // Panel::draw_modules(renderer, size)?;
 
             // Draw module grid.
             let mut run = DrawerRun::new(renderer);
@@ -216,7 +204,7 @@ impl Drawer {
     }
 
     /// Handle touch release events.
-    pub fn touch_up(&mut self, id: i32, modules: &mut [Box<dyn Module>]) {
+    pub fn touch_up(&mut self, id: i32, modules: &mut [&mut dyn Module]) {
         if Some(id) != self.touch_id {
             return;
         }
@@ -238,10 +226,6 @@ impl Drawer {
             modules.iter_mut().filter(|module| module.drawer_button().is_some()).nth(index)
         {
             module.toggle();
-
-            // TODO: Unnecessary if actual update comes through epoll or some shit?
-            // TODO: Should buttons update immediately or only through backend?
-            let _ = self.draw(modules, self.size.height as f64);
         }
     }
 

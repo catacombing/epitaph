@@ -1,7 +1,5 @@
 //! OpenGL rendering.
 
-use std::error::Error;
-use std::result::Result as StdResult;
 use std::{mem, ptr};
 
 use smithay::backend::egl::{EGLContext, EGLSurface};
@@ -9,7 +7,7 @@ use smithay::backend::egl::{EGLContext, EGLSurface};
 use crate::gl::types::{GLfloat, GLshort, GLuint};
 use crate::text::GlRasterizer;
 use crate::vertex::{GlVertex, VertexBatcher};
-use crate::{gl, Size};
+use crate::{gl, Result, Size};
 
 /// Default font.
 const FONT: &str = "Sans";
@@ -26,9 +24,6 @@ const BATCH_MAX: usize = (u16::MAX - u16::MAX % 4) as usize;
 
 const VERTEX_SHADER: &str = include_str!("../shaders/vertex.glsl");
 const FRAGMENT_SHADER: &str = include_str!("../shaders/fragment.glsl");
-
-/// Convenience result wrapper.
-type Result<T> = StdResult<T, Box<dyn Error>>;
 
 /// OpenGL renderer.
 pub struct Renderer {
