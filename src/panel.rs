@@ -11,7 +11,7 @@ use smithay_client_toolkit::shell::layer::{
 };
 use wayland_egl::WlEglSurface;
 
-use crate::module::{Alignment, Module};
+use crate::module::{Alignment, Module, PanelModuleContent};
 use crate::renderer::Renderer;
 use crate::text::{GlRasterizer, Svg};
 use crate::vertex::{GlVertex, VertexBatcher};
@@ -97,12 +97,14 @@ impl Panel {
         size: Size<f32>,
     ) -> Result<()> {
         for alignment in [Alignment::Center, Alignment::Right] {
-            let mut run = ModuleRun::new(renderer, size, alignment)?;
-
-            for module in modules.iter().filter(|module| module.alignment() == Some(alignment)) {
-                module.panel_insert(&mut run);
+            let mut run = PanelRun::new(renderer, size, alignment)?;
+            for module in modules
+                .iter()
+                .filter_map(|module| module.panel_module())
+                .filter(|module| module.alignment() == alignment)
+            {
+                run.batch(module.content());
             }
-
             run.draw();
         }
         Ok(())
@@ -152,7 +154,7 @@ impl Panel {
 }
 
 /// Run of multiple panel modules.
-pub struct ModuleRun<'a> {
+struct PanelRun<'a> {
     batcher: &'a mut VertexBatcher<GlVertex>,
     rasterizer: &'a mut GlRasterizer,
     alignment: Alignment,
@@ -162,8 +164,8 @@ pub struct ModuleRun<'a> {
     width: i16,
 }
 
-impl<'a> ModuleRun<'a> {
-    pub fn new(renderer: &'a mut Renderer, size: Size<f32>, alignment: Alignment) -> Result<Self> {
+impl<'a> PanelRun<'a> {
+    fn new(renderer: &'a mut Renderer, size: Size<f32>, alignment: Alignment) -> Result<Self> {
         Ok(Self {
             alignment,
             size,
@@ -176,7 +178,7 @@ impl<'a> ModuleRun<'a> {
     }
 
     /// Draw all modules in this run.
-    pub fn draw(mut self) {
+    fn draw(mut self) {
         // Trim last module padding.
         self.width = self.width.saturating_sub(self.module_padding());
 
@@ -198,8 +200,18 @@ impl<'a> ModuleRun<'a> {
         }
     }
 
+    /// Add a panel module to the run.
+    fn batch(&mut self, module: PanelModuleContent) {
+        match module {
+            PanelModuleContent::Text(text) => self.batch_string(&text),
+            PanelModuleContent::Svg(svg) => {
+                let _ = self.batch_svg(svg);
+            },
+        }
+    }
+
     /// Add text module to this run.
-    pub fn batch_string(&mut self, text: &str) {
+    fn batch_string(&mut self, text: &str) {
         // Calculate Y to center text.
         let y = ((self.size.height as f64 - self.metrics.line_height) / 2.
             + (self.metrics.line_height + self.metrics.descent as f64)) as i16;
@@ -217,14 +229,8 @@ impl<'a> ModuleRun<'a> {
     }
 
     /// Add SVG module to this run.
-    pub fn batch_svg(&mut self, svg: Svg) {
-        let svg = match self.rasterizer.rasterize_svg(svg, MODULE_WIDTH) {
-            Ok(svg) => svg,
-            Err(err) => {
-                eprintln!("SVG rasterization error: {:?}", err);
-                return;
-            },
-        };
+    fn batch_svg(&mut self, svg: Svg) -> Result<()> {
+        let svg = self.rasterizer.rasterize_svg(svg, MODULE_WIDTH, None)?;
 
         // Calculate Y to center SVG.
         let y = (self.size.height as i16 - svg.height as i16) / 2;
@@ -235,6 +241,8 @@ impl<'a> ModuleRun<'a> {
         self.width += svg.advance.0 as i16;
 
         self.width += self.module_padding();
+
+        Ok(())
     }
 
     /// Module padding with scale factor applied.

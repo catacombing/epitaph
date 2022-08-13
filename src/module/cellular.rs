@@ -8,8 +8,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use calloop::timer::{TimeoutAction, Timer};
 use calloop::LoopHandle;
 
-use crate::module::{Alignment, Module};
-use crate::panel::ModuleRun;
+use crate::module::{Alignment, DrawerModule, Module, PanelModule, PanelModuleContent, Toggle};
 use crate::text::Svg;
 use crate::{reaper, Result, State};
 
@@ -28,9 +27,6 @@ pub struct Cellular {
 
 impl Cellular {
     pub fn new(event_loop: &LoopHandle<'static, State>) -> Result<Self> {
-        // Store all the shared state.
-        let cellular = Self { signal_strength: 0, disabled: false, last_toggle: 0 };
-
         // Schedule module updates.
         event_loop.insert_source(Timer::immediate(), move |now, _, state| {
             // Temporarily suspend updates after toggling status.
@@ -49,7 +45,7 @@ impl Cellular {
             TimeoutAction::ToInstant(now + UPDATE_INTERVAL)
         })?;
 
-        Ok(cellular)
+        Ok(Self { signal_strength: 0, last_toggle: 0, disabled: false })
     }
 
     /// Handle `mmcli` command completion.
@@ -90,34 +86,37 @@ impl Cellular {
 }
 
 impl Module for Cellular {
-    fn alignment(&self) -> Option<Alignment> {
-        Some(Alignment::Right)
+    fn panel_module(&self) -> Option<&dyn PanelModule> {
+        Some(self)
     }
 
-    fn panel_insert(&self, run: &mut ModuleRun) {
-        // Check if cellular is completely turned off.
+    fn drawer_module(&mut self) -> Option<DrawerModule> {
+        Some(DrawerModule::Toggle(self))
+    }
+}
+
+impl PanelModule for Cellular {
+    fn alignment(&self) -> Alignment {
+        Alignment::Right
+    }
+
+    fn content(&self) -> PanelModuleContent {
         if self.disabled {
-            run.batch_svg(Svg::CellularDisabled);
-            return;
+            return PanelModuleContent::Svg(Svg::CellularDisabled);
         }
 
-        // Batch SVG for current signal strength.
-        let svg = match self.signal_strength {
+        PanelModuleContent::Svg(match self.signal_strength {
             -40.. => Svg::Cellular100,
             -60..=-41 => Svg::Cellular80,
             -70..=-61 => Svg::Cellular60,
             -80..=-71 => Svg::Cellular40,
             -90..=-81 => Svg::Cellular20,
             _ => Svg::Cellular0,
-        };
-        run.batch_svg(svg);
+        })
     }
+}
 
-    fn drawer_button(&self) -> Option<(Svg, bool)> {
-        let svg = if self.disabled { Svg::CellularDisabled } else { Svg::Cellular100 };
-        Some((svg, !self.disabled))
-    }
-
+impl Toggle for Cellular {
     fn toggle(&mut self) {
         // Temporarily block updates after toggling.
         self.last_toggle = unix_secs();
@@ -128,6 +127,18 @@ impl Module for Cellular {
         // Set device cellular state.
         let status = if self.disabled { "-d" } else { "-e" };
         let _ = reaper::daemon("mmcli", ["-m", "0", status]);
+    }
+
+    fn svg(&self) -> Svg {
+        if self.disabled {
+            Svg::CellularDisabled
+        } else {
+            Svg::Cellular100
+        }
+    }
+
+    fn enabled(&self) -> bool {
+        !self.disabled
     }
 }
 

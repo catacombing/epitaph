@@ -16,7 +16,9 @@ use crate::gl::types::GLuint;
 use crate::{gl, Result};
 
 /// Width and height of the glyph atlas texture.
-const ATLAS_SIZE: i32 = 1024;
+///
+/// 4096 is the maximum permitted texture size on the PinePhone.
+const ATLAS_SIZE: i32 = 4096;
 
 /// Cached OpenGL rasterization.
 pub struct GlRasterizer {
@@ -124,26 +126,34 @@ impl GlRasterizer {
     }
 
     /// Rasterize an SVG from its text.
-    pub fn rasterize_svg(&mut self, svg: Svg, target_width: u32) -> Result<GlSubTexture> {
+    pub fn rasterize_svg(
+        &mut self,
+        svg: Svg,
+        target_width: u32,
+        target_height: impl Into<Option<u32>>,
+    ) -> Result<GlSubTexture> {
+        let (mut width, mut height) = svg.size();
+        let x_scale = target_width as f32 / width as f32;
+        let y_scale = target_height.into().map(|th| th as f32 / height as f32).unwrap_or(x_scale);
+        width = (width as f32 * self.scale_factor as f32 * x_scale) as u32;
+        height = (height as f32 * self.scale_factor as f32 * y_scale) as u32;
+
         // Try to lead svg from cache.
-        let entry = match self.cache.entry(svg.into()) {
+        let entry = match self.cache.entry(CacheKey::Svg((svg, width, height))) {
             Entry::Occupied(entry) => return Ok(*entry.get()),
             Entry::Vacant(entry) => entry,
         };
-
-        let (mut width, mut height) = svg.size();
-        let scale = target_width as f64 / width as f64;
-        width = (width as f64 * self.scale_factor as f64 * scale) as u32;
-        height = (height as f64 * self.scale_factor as f64 * scale) as u32;
 
         // Setup target buffer.
         let mut pixmap = Pixmap::new(width, height)
             .ok_or_else(|| format!("Invalid SVG buffer size: {width}x{height}"))?;
 
+        // Compute transform for height.
+        let transform = Transform::from_scale(1., y_scale / x_scale);
+
         // Render SVG into buffer.
         let tree = Tree::from_str(svg.content(), &Options::default().to_ref())?;
-        let size = FitTo::Size(width, height);
-        resvg::render(&tree, size, Transform::default(), pixmap.as_mut())
+        resvg::render(&tree, FitTo::Width(width), transform, pixmap.as_mut())
             .ok_or_else(|| format!("Invalid SVG target size: {width}x{height}"))?;
 
         // Load SVG into atlas.
@@ -244,8 +254,8 @@ impl Atlas {
         let entry = entry.into();
 
         // Error if entry cannot fit at all.
-        if self.cursor_x > ATLAS_SIZE || self.cursor_y > ATLAS_SIZE {
-            return Err("atlas is full".into());
+        if entry.width > ATLAS_SIZE || entry.height > ATLAS_SIZE {
+            return Err("glyph too big for atlas".into());
         }
 
         // Create new row if entry doesn't fit into current one.
@@ -414,18 +424,12 @@ impl<'a> From<&'a RasterizedGlyph> for AtlasEntry<'a> {
 #[derive(Copy, Clone, Hash, PartialEq, Eq)]
 enum CacheKey {
     Character(char),
-    Svg(Svg),
+    Svg((Svg, u32, u32)),
 }
 
 impl From<char> for CacheKey {
     fn from(c: char) -> Self {
         Self::Character(c)
-    }
-}
-
-impl From<Svg> for CacheKey {
-    fn from(svg: Svg) -> Self {
-        Self::Svg(svg)
     }
 }
 
@@ -460,6 +464,7 @@ pub enum Svg {
     CellularDisabled,
     ButtonOn,
     ButtonOff,
+    Brightness,
 }
 
 impl Svg {
@@ -494,6 +499,7 @@ impl Svg {
             Self::CellularDisabled => (20, 18),
             Self::ButtonOn => (1, 1),
             Self::ButtonOff => (1, 1),
+            Self::Brightness => (20, 20),
         }
     }
 
@@ -528,6 +534,7 @@ impl Svg {
             Self::CellularDisabled => include_str!("../svgs/cellular/cellular_disabled.svg"),
             Self::ButtonOn => include_str!("../svgs/button_on.svg"),
             Self::ButtonOff => include_str!("../svgs/button_off.svg"),
+            Self::Brightness => include_str!("../svgs/brightness.svg"),
         }
     }
 }

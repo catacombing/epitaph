@@ -6,8 +6,7 @@ use calloop::timer::{TimeoutAction, Timer};
 use calloop::LoopHandle;
 use chrono::offset::Local;
 
-use crate::module::{Alignment, Module};
-use crate::panel::ModuleRun;
+use crate::module::{Alignment, Module, PanelModule, PanelModuleContent};
 use crate::{Result, State};
 
 pub struct Clock {
@@ -31,12 +30,17 @@ impl Clock {
 }
 
 impl Module for Clock {
-    fn alignment(&self) -> Option<Alignment> {
-        Some(Alignment::Center)
+    fn panel_module(&self) -> Option<&dyn PanelModule> {
+        Some(self)
+    }
+}
+
+impl PanelModule for Clock {
+    fn alignment(&self) -> Alignment {
+        Alignment::Center
     }
 
-    fn panel_insert(&self, run: &mut ModuleRun) {
-        let time = Local::now();
-        run.batch_string(&time.format("%H:%M").to_string());
+    fn content(&self) -> PanelModuleContent {
+        PanelModuleContent::Text(Local::now().format("%H:%M").to_string())
     }
 }

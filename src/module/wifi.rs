@@ -8,8 +8,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use calloop::timer::{TimeoutAction, Timer};
 use calloop::LoopHandle;
 
-use crate::module::{Alignment, Module};
-use crate::panel::ModuleRun;
+use crate::module::{Alignment, DrawerModule, Module, PanelModule, PanelModuleContent, Toggle};
 use crate::text::Svg;
 use crate::{reaper, Result, State};
 
@@ -32,9 +31,6 @@ pub struct Wifi {
 
 impl Wifi {
     pub fn new(event_loop: &LoopHandle<'static, State>) -> Result<Self> {
-        // Store all the shared state.
-        let wifi = Self { signal_strength: 0, connected: false, disabled: false, last_toggle: 0 };
-
         // Schedule module updates.
         event_loop.insert_source(Timer::immediate(), move |now, _, state| {
             // Temporarily suspend updates after toggling status.
@@ -58,7 +54,7 @@ impl Wifi {
             TimeoutAction::ToInstant(now + UPDATE_INTERVAL)
         })?;
 
-        Ok(wifi)
+        Ok(Self { signal_strength: 0, last_toggle: 0, connected: false, disabled: false })
     }
 
     /// Handle `ping` command completion.
@@ -108,19 +104,26 @@ impl Wifi {
 }
 
 impl Module for Wifi {
-    fn alignment(&self) -> Option<Alignment> {
-        Some(Alignment::Right)
+    fn panel_module(&self) -> Option<&dyn PanelModule> {
+        Some(self)
     }
 
-    fn panel_insert(&self, run: &mut ModuleRun) {
-        // Check if wifi is completely turned off.
+    fn drawer_module(&mut self) -> Option<DrawerModule> {
+        Some(DrawerModule::Toggle(self))
+    }
+}
+
+impl PanelModule for Wifi {
+    fn alignment(&self) -> Alignment {
+        Alignment::Right
+    }
+
+    fn content(&self) -> PanelModuleContent {
         if self.disabled {
-            run.batch_svg(Svg::WifiDisabled);
-            return;
+            return PanelModuleContent::Svg(Svg::WifiDisabled);
         }
 
-        // Batch SVG for current signal strength.
-        let svg = match (self.connected, self.signal_strength) {
+        PanelModuleContent::Svg(match (self.connected, self.signal_strength) {
             (true, -40..) => Svg::WifiConnected100,
             (true, -60..=-41) => Svg::WifiConnected75,
             (true, -75..=-61) => Svg::WifiConnected50,
@@ -129,15 +132,11 @@ impl Module for Wifi {
             (false, -60..=-41) => Svg::WifiDisconnected75,
             (false, -75..=-61) => Svg::WifiDisconnected50,
             (false, _) => Svg::WifiDisconnected25,
-        };
-        run.batch_svg(svg);
+        })
     }
+}
 
-    fn drawer_button(&self) -> Option<(Svg, bool)> {
-        let svg = if self.disabled { Svg::WifiDisabled } else { Svg::WifiConnected100 };
-        Some((svg, !self.disabled))
-    }
-
+impl Toggle for Wifi {
     fn toggle(&mut self) {
         // Temporarily block updates after toggling.
         self.last_toggle = unix_secs();
@@ -148,6 +147,18 @@ impl Module for Wifi {
         // Set device wifi state.
         let status = if self.disabled { "off" } else { "on" };
         let _ = reaper::daemon("nmcli", ["radio", "wifi", status]);
+    }
+
+    fn svg(&self) -> Svg {
+        if self.disabled {
+            Svg::WifiDisabled
+        } else {
+            Svg::WifiConnected100
+        }
+    }
+
+    fn enabled(&self) -> bool {
+        !self.disabled
     }
 }
 

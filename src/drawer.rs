@@ -10,12 +10,17 @@ use smithay_client_toolkit::shell::layer::{
 };
 use wayland_egl::WlEglSurface;
 
-use crate::module::Module;
+use crate::module::{DrawerModule, Module, Slider, Toggle};
 use crate::panel::PANEL_HEIGHT;
 use crate::renderer::Renderer;
 use crate::text::{GlRasterizer, Svg};
 use crate::vertex::{GlVertex, VertexBatcher};
 use crate::{gl, NativeDisplay, Result, Size, State, GL_ATTRIBUTES};
+
+/// Slider module height.
+///
+/// This should be less than `MODULE_SIZE`.
+const SLIDER_HEIGHT: i16 = MODULE_SIZE as i16 - 16;
 
 /// Padding between drawer modules.
 const MODULE_PADDING: i16 = 16;
@@ -24,7 +29,7 @@ const MODULE_PADDING: i16 = 16;
 const EDGE_PADDING: i16 = 24;
 
 /// Drawer module width and height.
-const MODULE_SIZE: i16 = 64;
+const MODULE_SIZE: u32 = 64;
 
 /// Drawer module icon width.
 const ICON_WIDTH: u32 = 32;
@@ -32,8 +37,8 @@ const ICON_WIDTH: u32 = 32;
 pub struct Drawer {
     window: Option<LayerSurface>,
     queue: QueueHandle<State>,
-    touch_position: (i16, i16),
-    touch_start: (i16, i16),
+    touch_module: Option<usize>,
+    touch_position: (f64, f64),
     touch_id: Option<i32>,
     display: EGLDisplay,
     frame_pending: bool,
@@ -64,7 +69,7 @@ impl Drawer {
             scale_factor: 1,
             frame_pending: Default::default(),
             touch_position: Default::default(),
-            touch_start: Default::default(),
+            touch_module: Default::default(),
             touch_id: Default::default(),
             window: Default::default(),
         })
@@ -113,7 +118,7 @@ impl Drawer {
     }
 
     /// Render the panel.
-    pub fn draw(&mut self, modules: &[&dyn Module], mut offset: f64) -> Result<()> {
+    pub fn draw(&mut self, modules: &mut [&mut dyn Module], mut offset: f64) -> Result<()> {
         offset = (offset * self.scale_factor as f64).min(self.size.height as f64);
         self.frame_pending = false;
 
@@ -137,8 +142,8 @@ impl Drawer {
 
             // Draw module grid.
             let mut run = DrawerRun::new(renderer);
-            for (svg, active) in modules.iter().filter_map(|module| module.drawer_button()) {
-                run.batch_toggle(svg, active);
+            for module in modules.iter_mut().filter_map(|module| module.drawer_module()) {
+                run.batch(module);
             }
             run.draw();
 
@@ -190,43 +195,83 @@ impl Drawer {
     }
 
     /// Handle touch press events.
-    pub fn touch_down(&mut self, id: i32, position: (f64, f64)) {
+    pub fn touch_down(
+        &mut self,
+        id: i32,
+        position: (f64, f64),
+        modules: &mut [&mut dyn Module],
+    ) -> bool {
         self.touch_position = scale_touch(position, self.scale_factor);
-        self.touch_start = scale_touch(position, self.scale_factor);
         self.touch_id = Some(id);
+
+        // Find touched module.
+        let positioner = ModulePositioner::new(self.size.into(), self.scale_factor as i16);
+        let (index, x) = match positioner.module_position(modules, self.touch_position) {
+            Some((index, x, _)) => (index, x),
+            None => return false,
+        };
+        self.touch_module = Some(index);
+
+        // Update sliders.
+        match modules[index].drawer_module() {
+            Some(DrawerModule::Slider(slider)) => {
+                let _ = slider.set_value(x);
+                true
+            },
+            _ => false,
+        }
     }
 
     /// Handle touch motion events.
-    pub fn touch_motion(&mut self, id: i32, position: (f64, f64)) {
-        if Some(id) == self.touch_id {
-            self.touch_position = scale_touch(position, self.scale_factor);
+    pub fn touch_motion(
+        &mut self,
+        id: i32,
+        position: (f64, f64),
+        modules: &mut [&mut dyn Module],
+    ) -> bool {
+        if Some(id) != self.touch_id {
+            return false;
+        }
+        self.touch_position = scale_touch(position, self.scale_factor);
+
+        // Update slider position.
+        let positioner = ModulePositioner::new(self.size.into(), self.scale_factor as i16);
+        match self.touch_module.and_then(|module| modules[module].drawer_module()) {
+            Some(DrawerModule::Slider(slider)) => {
+                let relative_x = self.touch_position.0 - positioner.edge_padding as f64;
+                let fractional_x = relative_x / positioner.slider_size.width as f64;
+
+                let _ = slider.set_value(fractional_x);
+
+                true
+            },
+            _ => false,
         }
     }
 
     /// Handle touch release events.
-    pub fn touch_up(&mut self, id: i32, modules: &mut [&mut dyn Module]) {
+    pub fn touch_up(&mut self, id: i32, modules: &mut [&mut dyn Module]) -> bool {
         if Some(id) != self.touch_id {
-            return;
+            return false;
         }
+
+        // Handle button toggles on touch up.
+        let mut dirty = false;
+        let positioner = ModulePositioner::new(self.size.into(), self.scale_factor as i16);
+        if let Some(DrawerModule::Toggle(toggle)) = positioner
+            .module_position(modules, self.touch_position)
+            .filter(|(index, ..)| Some(*index) == self.touch_module)
+            .and_then(|(index, ..)| modules[index].drawer_module())
+        {
+            toggle.toggle();
+            dirty = true;
+        }
+
+        // Reset touch state.
+        self.touch_module = None;
         self.touch_id = None;
 
-        // Calculate touched module.
-        let positioner = ModulePositioner::new(self.size.into(), self.scale_factor as i16);
-        let start_cell = positioner.cell(self.touch_start.0, self.touch_start.1);
-        let end_cell = positioner.cell(self.touch_position.0, self.touch_position.1);
-
-        // Find clicked module index.
-        let index = match start_cell.zip(end_cell) {
-            Some((start, end)) if start == end => start.0 + start.1 * positioner.columns as usize,
-            _ => return,
-        };
-
-        // Toggle buttons at click location.
-        if let Some(module) =
-            modules.iter_mut().filter(|module| module.drawer_button().is_some()).nth(index)
-        {
-            module.toggle();
-        }
+        dirty
     }
 
     /// Drawer offset when fully visible.
@@ -244,7 +289,7 @@ impl Drawer {
 }
 
 /// Batched drawer module rendering.
-pub struct DrawerRun<'a> {
+struct DrawerRun<'a> {
     batcher: &'a mut VertexBatcher<GlVertex>,
     rasterizer: &'a mut GlRasterizer,
     positioner: ModulePositioner,
@@ -253,7 +298,7 @@ pub struct DrawerRun<'a> {
 }
 
 impl<'a> DrawerRun<'a> {
-    pub fn new(renderer: &'a mut Renderer) -> Self {
+    fn new(renderer: &'a mut Renderer) -> Self {
         Self {
             positioner: ModulePositioner::new(renderer.size, renderer.scale_factor as i16),
             rasterizer: &mut renderer.rasterizer,
@@ -263,25 +308,73 @@ impl<'a> DrawerRun<'a> {
         }
     }
 
+    /// Add a drawer module to the run.
+    fn batch(&mut self, module: DrawerModule) {
+        let _ = match module {
+            DrawerModule::Toggle(toggle) => self.batch_toggle(toggle),
+            DrawerModule::Slider(slider) => self.batch_slider(slider),
+        };
+    }
+
+    /// Add a slider to the drawer.
+    fn batch_slider(&mut self, slider: &dyn Slider) -> Result<()> {
+        let width = (self.positioner.slider_size.width / self.positioner.scale_factor) as u32;
+        let height = (self.positioner.slider_size.height / self.positioner.scale_factor) as u32;
+
+        // Rasterize slider icon.
+        let icon = self.rasterizer.rasterize_svg(slider.svg(), ICON_WIDTH, None)?;
+
+        // Rasterize slider background.
+        let tray = self.rasterizer.rasterize_svg(Svg::ButtonOff, width, height)?;
+
+        // Rasterize slider foreground, if it is non-zero.
+        let slider_width = (width as f64 * slider.get_value()) as u32;
+        let slider = if slider_width > 0 {
+            self.rasterizer.rasterize_svg(Svg::ButtonOn, slider_width, height).ok()
+        } else {
+            None
+        };
+
+        // Ensure we're in an empty row.
+        if self.column != 0 {
+            self.column = 0;
+            self.row += 1;
+        }
+
+        // Calculate origin point.
+        let (x, mut y) = self.positioner.position(self.column, self.row);
+        y += (self.positioner.module_size - self.positioner.slider_size.height) / 2;
+
+        // Update active row.
+        self.row += 1;
+
+        for vertex in tray.vertices(x, y).into_iter().flatten() {
+            self.batcher.push(tray.texture_id, vertex);
+        }
+
+        if let Some(slider) = slider {
+            for vertex in slider.vertices(x, y).into_iter().flatten() {
+                self.batcher.push(slider.texture_id, vertex);
+            }
+        }
+
+        // Calculate icon origin.
+        let icon_x = x + (self.positioner.slider_size.width - icon.width) / 2;
+        let icon_y = y + (self.positioner.slider_size.height - icon.height) / 2;
+
+        for vertex in icon.vertices(icon_x, icon_y).into_iter().flatten() {
+            self.batcher.push(icon.texture_id, vertex);
+        }
+
+        Ok(())
+    }
+
     /// Add a toggle button to the drawer.
-    pub fn batch_toggle(&mut self, svg: Svg, active: bool) {
-        let svg = match self.rasterizer.rasterize_svg(svg, ICON_WIDTH) {
-            Ok(svg) => svg,
-            Err(err) => {
-                eprintln!("SVG rasterization error: {:?}", err);
-                return;
-            },
-        };
+    fn batch_toggle(&mut self, toggle: &dyn Toggle) -> Result<()> {
+        let svg = self.rasterizer.rasterize_svg(toggle.svg(), ICON_WIDTH, None)?;
 
-        let button_svg = if active { Svg::ButtonOn } else { Svg::ButtonOff };
-
-        let backdrop = match self.rasterizer.rasterize_svg(button_svg, MODULE_SIZE as u32) {
-            Ok(svg) => svg,
-            Err(err) => {
-                eprintln!("SVG rasterization error: {:?}", err);
-                return;
-            },
-        };
+        let button_svg = if toggle.enabled() { Svg::ButtonOn } else { Svg::ButtonOff };
+        let backdrop = self.rasterizer.rasterize_svg(button_svg, MODULE_SIZE, MODULE_SIZE)?;
 
         // Calculate module origin point.
         let (x, y) = self.positioner.position(self.column, self.row);
@@ -290,7 +383,7 @@ impl<'a> DrawerRun<'a> {
         let icon_x = x + (backdrop.width - svg.width) / 2;
         let icon_y = y + (backdrop.height - svg.height) / 2;
 
-        // Update active column/line.
+        // Update active column/row.
         self.column += 1;
         if self.column >= self.positioner.columns {
             self.column = 0;
@@ -306,10 +399,12 @@ impl<'a> DrawerRun<'a> {
         for vertex in svg.vertices(icon_x, icon_y).into_iter().flatten() {
             self.batcher.push(svg.texture_id, vertex);
         }
+
+        Ok(())
     }
 
     /// Draw all modules in this run.
-    pub fn draw(self) {
+    fn draw(self) {
         let mut batches = self.batcher.batches();
         while let Some(batch) = batches.next() {
             batch.draw();
@@ -319,7 +414,9 @@ impl<'a> DrawerRun<'a> {
 
 /// Module position calculator.
 struct ModulePositioner {
+    slider_size: Size<i16>,
     module_padding: i16,
+    scale_factor: i16,
     edge_padding: i16,
     panel_height: i16,
     module_size: i16,
@@ -332,17 +429,30 @@ impl ModulePositioner {
         let size = Size::new(size.width as i16, size.height as i16);
 
         // Scale constants by DPI scale factor.
-        let module_padding = MODULE_PADDING * scale_factor;
-        let edge_padding = EDGE_PADDING * scale_factor;
         let panel_height = PANEL_HEIGHT as i16 * scale_factor;
-        let module_size = MODULE_SIZE * scale_factor;
+        let module_size = MODULE_SIZE as i16 * scale_factor;
+        let module_padding = MODULE_PADDING * scale_factor;
+        let slider_height = SLIDER_HEIGHT * scale_factor;
+        let edge_padding = EDGE_PADDING * scale_factor;
 
         let content_width = size.width - edge_padding * 2;
         let padded_module_size = module_size + module_padding;
         let columns = (content_width + module_padding) / padded_module_size;
         let edge_padding = (size.width + module_padding - columns * padded_module_size) / 2;
 
-        Self { module_padding, edge_padding, panel_height, module_size, columns, size }
+        let slider_width = size.width - 2 * edge_padding;
+        let slider_size = Size::new(slider_width, slider_height);
+
+        Self {
+            module_padding,
+            edge_padding,
+            panel_height,
+            scale_factor,
+            slider_size,
+            module_size,
+            columns,
+            size,
+        }
     }
 
     /// Get cell origin point.
@@ -354,36 +464,51 @@ impl ModulePositioner {
         (x, y)
     }
 
-    /// Get row/column in module grid from position.
-    fn cell(&self, x: i16, y: i16) -> Option<(usize, usize)> {
-        let padded_module_size = self.module_size + self.module_padding;
+    /// Get relative position inside a module.
+    fn module_position(
+        &self,
+        modules: &mut [&mut dyn Module],
+        position: (f64, f64),
+    ) -> Option<(usize, f64, f64)> {
+        let x = position.0 as i16;
+        let y = position.1 as i16;
+        let mut start_x = self.edge_padding;
+        let mut start_y = self.panel_height + self.edge_padding;
 
-        // Get X/Y relative to module cell.
-        let relative_x = (x - self.edge_padding) % padded_module_size;
-        let relative_y = (y - self.panel_height - self.edge_padding) % padded_module_size;
+        for (i, module) in modules.iter_mut().enumerate() {
+            // Only check drawer modules.
+            let module = match module.drawer_module() {
+                Some(module) => module,
+                None => continue,
+            };
 
-        // Filter clicks inside padding.
-        if x < self.edge_padding
-            || x >= (self.size.width - self.edge_padding)
-            || y < (self.panel_height + self.edge_padding)
-            || y >= (self.size.height - self.edge_padding)
-            || relative_x < self.module_padding
-            || relative_x >= padded_module_size
-            || relative_y < self.module_padding
-            || relative_y >= padded_module_size
-        {
-            return None;
+            // Calculate module end.
+            let end_x = match module {
+                DrawerModule::Toggle(_) => start_x + self.module_size,
+                DrawerModule::Slider(_) => start_x + self.slider_size.width,
+            };
+            let end_y = start_y + self.module_size;
+
+            // Check if position is within this module.
+            if x >= start_x && y >= start_y && x < end_x && y < end_y {
+                let fractional_x = (position.0 - start_x as f64) / (end_x - start_x) as f64;
+                let fractional_y = (position.1 - start_y as f64) / (end_y - start_y) as f64;
+                return Some((i, fractional_x, fractional_y));
+            }
+
+            // Calculate next module start.
+            start_x = end_x + self.module_padding;
+            if start_x >= self.size.width - self.edge_padding {
+                start_x = self.edge_padding;
+                start_y = end_y;
+            }
         }
 
-        // Calculate click column/row.
-        let column = (x - self.edge_padding) / padded_module_size;
-        let row = (y - self.panel_height - self.edge_padding) / padded_module_size;
-
-        Some((column as usize, row as usize))
+        None
     }
 }
 
 /// Scale touch position by scale factor.
-fn scale_touch(position: (f64, f64), scale_factor: i32) -> (i16, i16) {
-    (position.0 as i16 * scale_factor as i16, position.1 as i16 * scale_factor as i16)
+fn scale_touch(position: (f64, f64), scale_factor: i32) -> (f64, f64) {
+    (position.0 * scale_factor as f64, position.1 * scale_factor as f64)
 }

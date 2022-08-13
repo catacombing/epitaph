@@ -32,6 +32,7 @@ use smithay_client_toolkit::{
 
 use crate::drawer::Drawer;
 use crate::module::battery::Battery;
+use crate::module::brightness::Brightness;
 use crate::module::cellular::Cellular;
 use crate::module::clock::Clock;
 use crate::module::wifi::Wifi;
@@ -190,7 +191,7 @@ impl State {
             }
         } else if self.drawer().owns_surface(surface) {
             let drawer = self.drawer.as_mut().unwrap();
-            if let Err(error) = drawer.draw(&self.modules.as_slice(), self.drawer_offset) {
+            if let Err(error) = drawer.draw(&mut self.modules.as_slice_mut(), self.drawer_offset) {
                 eprintln!("Drawer rendering failed: {:?}", error);
             }
         }
@@ -371,7 +372,15 @@ impl TouchHandler for State {
                 self.active_touch = Some(id);
                 self.drawer_opening = false;
             } else {
-                self.drawer().touch_down(id, position);
+                let dirty = self.drawer.as_mut().unwrap().touch_down(
+                    id,
+                    position,
+                    &mut self.modules.as_slice_mut(),
+                );
+
+                if dirty {
+                    self.request_frame();
+                }
             }
         }
     }
@@ -391,8 +400,12 @@ impl TouchHandler for State {
             // Start drawer animation.
             let _ = self.event_loop.insert_source(Timer::immediate(), animate_drawer);
         } else {
-            self.drawer.as_mut().unwrap().touch_up(id, &mut self.modules.as_slice_mut());
-            self.request_frame();
+            let dirty =
+                self.drawer.as_mut().unwrap().touch_up(id, &mut self.modules.as_slice_mut());
+
+            if dirty {
+                self.request_frame();
+            }
         }
     }
 
@@ -409,7 +422,15 @@ impl TouchHandler for State {
             self.drawer_offset = position.1;
             self.drawer().request_frame();
         } else {
-            self.drawer().touch_motion(id, position);
+            let dirty = self.drawer.as_mut().unwrap().touch_motion(
+                id,
+                position,
+                &mut self.modules.as_slice_mut(),
+            );
+
+            if dirty {
+                self.request_frame();
+            }
         }
     }
 
@@ -468,6 +489,7 @@ impl ProtocolStates {
 
 /// Panel modules.
 struct Modules {
+    brightness: Brightness,
     cellular: Cellular,
     battery: Battery,
     clock: Clock,
@@ -477,6 +499,7 @@ struct Modules {
 impl Modules {
     fn new(event_loop: &LoopHandle<'static, State>) -> Result<Self> {
         Ok(Self {
+            brightness: Brightness::new()?,
             cellular: Cellular::new(event_loop)?,
             battery: Battery::new(event_loop)?,
             clock: Clock::new(event_loop)?,
@@ -485,13 +508,19 @@ impl Modules {
     }
 
     /// Get all modules as sorted immutable slice.
-    fn as_slice(&self) -> [&dyn Module; 4] {
-        [&self.clock, &self.cellular, &self.wifi, &self.battery]
+    fn as_slice(&self) -> [&dyn Module; 5] {
+        [&self.brightness, &self.clock, &self.cellular, &self.wifi, &self.battery]
     }
 
     /// Get all modules as sorted mutable slice.
-    fn as_slice_mut(&mut self) -> [&mut dyn Module; 4] {
-        [&mut self.clock, &mut self.cellular, &mut self.wifi, &mut self.battery]
+    fn as_slice_mut(&mut self) -> [&mut dyn Module; 5] {
+        [
+            &mut self.brightness,
+            &mut self.clock,
+            &mut self.cellular,
+            &mut self.wifi,
+            &mut self.battery,
+        ]
     }
 }
 
