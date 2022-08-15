@@ -172,9 +172,14 @@ impl Renderer {
 
     /// Update viewport size.
     pub fn resize(&mut self, size: Size, scale_factor: i32) -> Result<()> {
-        let egl_surface = self.bind()?;
+        // XXX: Resize here **must** be performed before making the EGL context current,
+        // to avoid locking the back buffer and delaying the resize by one
+        // frame.
+        if let Some(egl_surface) = &self.egl_surface {
+            egl_surface.resize(size.width, size.height, 0, 0);
+        }
 
-        egl_surface.resize(size.width, size.height, 0, 0);
+        let egl_surface = self.bind()?;
 
         unsafe { gl::Viewport(0, 0, size.width, size.height) };
         self.size = size.into();
