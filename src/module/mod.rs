@@ -7,6 +7,7 @@ pub mod battery;
 pub mod brightness;
 pub mod cellular;
 pub mod clock;
+pub mod flashlight;
 pub mod wifi;
 
 /// Panel module.
@@ -65,7 +66,7 @@ pub trait Slider {
 /// Drawer toggle button module.
 pub trait Toggle {
     /// Toggle button status.
-    fn toggle(&mut self);
+    fn toggle(&mut self) -> Result<()>;
 
     /// Get button status.
     fn enabled(&self) -> bool;

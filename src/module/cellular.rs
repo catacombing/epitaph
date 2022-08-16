@@ -18,7 +18,6 @@ const UPDATE_INTERVAL: Duration = Duration::from_secs(5);
 /// Seconds after toggling status until updates are resumed.
 const TOGGLE_COOLDOWN: u64 = 10;
 
-#[derive(Default)]
 pub struct Cellular {
     signal_strength: i32,
     last_toggle: u64,
@@ -117,7 +116,7 @@ impl PanelModule for Cellular {
 }
 
 impl Toggle for Cellular {
-    fn toggle(&mut self) {
+    fn toggle(&mut self) -> Result<()> {
         // Temporarily block updates after toggling.
         self.last_toggle = unix_secs();
 
@@ -127,6 +126,8 @@ impl Toggle for Cellular {
         // Set device cellular state.
         let status = if self.disabled { "-d" } else { "-e" };
         let _ = reaper::daemon("mmcli", ["-m", "0", status]);
+
+        Ok(())
     }
 
     fn svg(&self) -> Svg {

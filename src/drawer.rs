@@ -31,8 +31,8 @@ const EDGE_PADDING: i16 = 24;
 /// Drawer module width and height.
 const MODULE_SIZE: u32 = 64;
 
-/// Drawer module icon width.
-const ICON_WIDTH: u32 = 32;
+/// Drawer module icon height.
+const ICON_HEIGHT: u32 = 32;
 
 pub struct Drawer {
     window: Option<LayerSurface>,
@@ -263,7 +263,7 @@ impl Drawer {
             .filter(|(index, ..)| Some(*index) == self.touch_module)
             .and_then(|(index, ..)| modules[index].drawer_module())
         {
-            toggle.toggle();
+            let _ = toggle.toggle();
             dirty = true;
         }
 
@@ -322,7 +322,7 @@ impl<'a> DrawerRun<'a> {
         let height = (self.positioner.slider_size.height / self.positioner.scale_factor) as u32;
 
         // Rasterize slider icon.
-        let icon = self.rasterizer.rasterize_svg(slider.svg(), ICON_WIDTH, None)?;
+        let icon = self.rasterizer.rasterize_svg(slider.svg(), ICON_HEIGHT, None)?;
 
         // Rasterize slider background.
         let tray = self.rasterizer.rasterize_svg(Svg::ButtonOff, width, height)?;
@@ -371,7 +371,7 @@ impl<'a> DrawerRun<'a> {
 
     /// Add a toggle button to the drawer.
     fn batch_toggle(&mut self, toggle: &dyn Toggle) -> Result<()> {
-        let svg = self.rasterizer.rasterize_svg(toggle.svg(), ICON_WIDTH, None)?;
+        let svg = self.rasterizer.rasterize_svg(toggle.svg(), None, ICON_HEIGHT)?;
 
         let button_svg = if toggle.enabled() { Svg::ButtonOn } else { Svg::ButtonOff };
         let backdrop = self.rasterizer.rasterize_svg(button_svg, MODULE_SIZE, MODULE_SIZE)?;

@@ -129,12 +129,20 @@ impl GlRasterizer {
     pub fn rasterize_svg(
         &mut self,
         svg: Svg,
-        target_width: u32,
+        target_width: impl Into<Option<u32>>,
         target_height: impl Into<Option<u32>>,
     ) -> Result<GlSubTexture> {
+        // Calculate SVG X/Y scale factor.
         let (mut width, mut height) = svg.size();
-        let x_scale = target_width as f32 / width as f32;
-        let y_scale = target_height.into().map(|th| th as f32 / height as f32).unwrap_or(x_scale);
+        let x_scale = target_width.into().map(|tw| tw as f32 / width as f32);
+        let y_scale = target_height.into().map(|th| th as f32 / height as f32);
+        let (x_scale, y_scale) = match (x_scale, y_scale) {
+            (Some(x_scale), Some(y_scale)) => (x_scale, y_scale),
+            (Some(scale), None) | (None, Some(scale)) => (scale, scale),
+            (None, None) => (1., 1.),
+        };
+
+        // Calculate target dimensions.
         width = (width as f32 * self.scale_factor as f32 * x_scale) as u32;
         height = (height as f32 * self.scale_factor as f32 * y_scale) as u32;
 
@@ -465,6 +473,8 @@ pub enum Svg {
     ButtonOn,
     ButtonOff,
     Brightness,
+    FlashlightOn,
+    FlashlightOff,
 }
 
 impl Svg {
@@ -500,6 +510,8 @@ impl Svg {
             Self::ButtonOn => (1, 1),
             Self::ButtonOff => (1, 1),
             Self::Brightness => (20, 20),
+            Self::FlashlightOn => (45, 75),
+            Self::FlashlightOff => (45, 75),
         }
     }
 
@@ -534,7 +546,9 @@ impl Svg {
             Self::CellularDisabled => include_str!("../svgs/cellular/cellular_disabled.svg"),
             Self::ButtonOn => include_str!("../svgs/button_on.svg"),
             Self::ButtonOff => include_str!("../svgs/button_off.svg"),
-            Self::Brightness => include_str!("../svgs/brightness.svg"),
+            Self::Brightness => include_str!("../svgs/brightness/brightness.svg"),
+            Self::FlashlightOn => include_str!("../svgs/flashlight/flashlight_on.svg"),
+            Self::FlashlightOff => include_str!("../svgs/flashlight/flashlight_off.svg"),
         }
     }
 }

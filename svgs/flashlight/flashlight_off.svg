@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="45mm"
+   height="75mm"
+   viewBox="0 0 45 75"
+   version="1.1"
+   id="svg5"
+   xml:space="preserve"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg"><defs
+     id="defs9"><clipPath
+       clipPathUnits="userSpaceOnUse"
+       id="clipPath2040"><circle
+         style="display:none;fill:#000000;fill-opacity:1;stroke-width:4.99999;paint-order:markers fill stroke"
+         id="circle2042"
+         cx="65.237"
+         cy="200"
+         r="5"
+         d="m 70.237,200 a 5,5 0 0 1 -5,5 5,5 0 0 1 -5,-5 5,5 0 0 1 5,-5 5,5 0 0 1 5,5 z" /><path
+         id="lpe_path-effect2044"
+         style="fill:#000000;fill-opacity:1;stroke-width:4.99999;paint-order:markers fill stroke"
+         class="powerclip"
+         d="m 37.736936,161.6068 h 55 v 75 h -55 z M 70.237,200 a 5,5 0 0 0 -5,-5 5,5 0 0 0 -5,5 5,5 0 0 0 5,5 5,5 0 0 0 5,-5 z" /></clipPath></defs><g
+     id="g2128"
+     transform="translate(0,-150)"><path
+       style="fill:#666666;fill-opacity:1;stroke-width:4.99999;paint-order:markers fill stroke"
+       d="m 55.236936,231.6068 v -45 l -12.5,-20 h 45 l -12.5,20 v 45 z"
+       id="path1879"
+       clip-path="url(#clipPath2040)"
+       transform="translate(-42.736936,-6.6068)" /><rect
+       style="fill:#666666;fill-opacity:1;stroke-width:4.99999;paint-order:markers fill stroke"
+       id="rect2124"
+       width="45"
+       height="8"
+       x="0"
+       y="150" /></g></svg>

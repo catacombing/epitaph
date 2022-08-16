@@ -21,7 +21,7 @@ const TOGGLE_COOLDOWN: u64 = 10;
 /// IP to ping for checking network connectivity.
 const PING_IP: &str = "1.1.1.1";
 
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub struct Wifi {
     signal_strength: i32,
     last_toggle: u64,
@@ -137,7 +137,7 @@ impl PanelModule for Wifi {
 }
 
 impl Toggle for Wifi {
-    fn toggle(&mut self) {
+    fn toggle(&mut self) -> Result<()> {
         // Temporarily block updates after toggling.
         self.last_toggle = unix_secs();
 
@@ -147,6 +147,8 @@ impl Toggle for Wifi {
         // Set device wifi state.
         let status = if self.disabled { "off" } else { "on" };
         let _ = reaper::daemon("nmcli", ["radio", "wifi", status]);
+
+        Ok(())
     }
 
     fn svg(&self) -> Svg {

@@ -179,7 +179,7 @@ impl Renderer {
             egl_surface.resize(size.width, size.height, 0, 0);
         }
 
-        let egl_surface = self.bind()?;
+        self.bind()?;
 
         unsafe { gl::Viewport(0, 0, size.width, size.height) };
         self.size = size.into();

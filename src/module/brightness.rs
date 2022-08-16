@@ -8,7 +8,6 @@ use crate::module::{DrawerModule, Module, Slider};
 use crate::text::Svg;
 use crate::Result;
 
-#[derive(Default)]
 pub struct Brightness {
     brightness: f64,
 }
