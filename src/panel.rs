@@ -15,7 +15,7 @@ use crate::module::{Alignment, Module, PanelModuleContent};
 use crate::renderer::Renderer;
 use crate::text::{GlRasterizer, Svg};
 use crate::vertex::{GlVertex, VertexBatcher};
-use crate::{gl, NativeDisplay, Result, Size, State, GL_ATTRIBUTES};
+use crate::{gl, NativeDisplay, Result, Size, State, BG, GL_ATTRIBUTES};
 
 /// Panel height in pixels with a scale factor of 1.
 pub const PANEL_HEIGHT: i32 = 20;
@@ -35,6 +35,7 @@ pub struct Panel {
     frame_pending: bool,
     renderer: Renderer,
     scale_factor: i32,
+    transparency: f32,
     size: Size,
 }
 
@@ -76,7 +77,15 @@ impl Panel {
         let mut renderer = Renderer::new(egl_context, 1)?;
         renderer.set_surface(Some(egl_surface));
 
-        Ok(Self { renderer, window, queue, size, frame_pending: false, scale_factor: 1 })
+        Ok(Self {
+            renderer,
+            window,
+            queue,
+            size,
+            frame_pending: false,
+            transparency: 0.,
+            scale_factor: 1,
+        })
     }
 
     /// Render the panel.
@@ -84,6 +93,7 @@ impl Panel {
         self.frame_pending = false;
 
         self.renderer.draw(|renderer| unsafe {
+            gl::ClearColor(BG[0], BG[1], BG[2], self.transparency);
             gl::Clear(gl::COLOR_BUFFER_BIT);
 
             Self::draw_modules(renderer, modules, renderer.size)
@@ -142,6 +152,12 @@ impl Panel {
         let surface = self.window.wl_surface();
         surface.frame(&self.queue, surface.clone()).expect("scheduled frame request");
         surface.commit();
+    }
+
+    /// Set panel transparency.
+    pub fn set_transparent(&mut self, transparent: bool) {
+        self.transparency = transparent.then(|| 0.).unwrap_or(1.);
+        self.request_frame();
     }
 
     /// Resize the window.
