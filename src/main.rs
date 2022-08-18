@@ -58,9 +58,6 @@ mod gl {
 pub const GL_ATTRIBUTES: GlAttributes =
     GlAttributes { version: (2, 0), profile: None, debug: false, vsync: false };
 
-/// Window background color.
-pub const BG: [f32; 4] = [0.1, 0.1, 0.1, 1.0];
-
 /// Time between drawer animation updates.
 const ANIMATION_INTERVAL: Duration = Duration::from_millis(1000 / 120);
 
@@ -367,8 +364,6 @@ impl TouchHandler for State {
                 eprintln!("Error: Couldn't open drawer: {}", err);
             }
 
-            self.panel().set_transparent(false);
-
             self.drawer_offset = position.1;
             self.active_touch = Some(id);
             self.drawer_opening = true;
@@ -599,7 +594,6 @@ fn animate_drawer(now: Instant, _: &mut (), state: &mut State) -> TimeoutAction 
     }
 
     if state.drawer_offset <= 0. {
-        state.panel().set_transparent(true);
         state.drawer().hide();
 
         TimeoutAction::Drop

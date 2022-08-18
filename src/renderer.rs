@@ -151,6 +151,7 @@ impl Renderer {
             gl::EnableVertexAttribArray(2);
 
             // Set background color and blending.
+            gl::ClearColor(0.1, 0.1, 0.1, 1.0);
             gl::Enable(gl::BLEND);
             gl::BlendFunc(gl::SRC1_COLOR_EXT, gl::ONE_MINUS_SRC1_COLOR_EXT);
 

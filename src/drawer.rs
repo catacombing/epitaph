@@ -15,7 +15,7 @@ use crate::panel::PANEL_HEIGHT;
 use crate::renderer::Renderer;
 use crate::text::{GlRasterizer, Svg};
 use crate::vertex::{GlVertex, VertexBatcher};
-use crate::{gl, NativeDisplay, Result, Size, State, GL_ATTRIBUTES, BG};
+use crate::{gl, NativeDisplay, Result, Size, State, GL_ATTRIBUTES};
 
 /// Slider module height.
 ///
@@ -137,7 +137,7 @@ impl Drawer {
             gl::Viewport(0, y_offset, self.size.width, self.size.height);
 
             // Draw background for the offset viewport.
-            gl::ClearColor(BG[0], BG[1], BG[2], BG[3]);
+            gl::ClearColor(0.1, 0.1, 0.1, 1.0);
             gl::Clear(gl::COLOR_BUFFER_BIT);
 
             // Draw module grid.
