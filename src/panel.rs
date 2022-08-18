@@ -35,7 +35,7 @@ pub struct Panel {
     frame_pending: bool,
     renderer: Renderer,
     scale_factor: i32,
-    transparency: f32,
+    transparent: bool,
     size: Size,
 }
 
@@ -82,9 +82,9 @@ impl Panel {
             window,
             queue,
             size,
-            frame_pending: false,
-            transparency: 0.,
+            transparent: true,
             scale_factor: 1,
+            frame_pending: Default::default(),
         })
     }
 
@@ -93,7 +93,11 @@ impl Panel {
         self.frame_pending = false;
 
         self.renderer.draw(|renderer| unsafe {
-            gl::ClearColor(BG[0], BG[1], BG[2], self.transparency);
+            if self.transparent {
+                gl::ClearColor(0., 0., 0., 0.);
+            } else {
+                gl::ClearColor(BG[0], BG[1], BG[2], BG[3]);
+            }
             gl::Clear(gl::COLOR_BUFFER_BIT);
 
             Self::draw_modules(renderer, modules, renderer.size)
@@ -156,7 +160,7 @@ impl Panel {
 
     /// Set panel transparency.
     pub fn set_transparent(&mut self, transparent: bool) {
-        self.transparency = transparent.then(|| 0.).unwrap_or(1.);
+        self.transparent = transparent;
         self.request_frame();
     }
 
