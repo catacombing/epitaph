@@ -6,15 +6,13 @@ use crate::module::{DrawerModule, Module, Toggle};
 use crate::text::Svg;
 use crate::Result;
 
-#[derive(Default)]
 pub struct Orientation {
     locked: bool,
 }
 
 impl Orientation {
     pub fn new() -> Self {
-        // TODO: Get default orientation from wayland output rotation hint?
-        Self::default()
+        Self { locked: true }
     }
 }
 
@@ -28,7 +26,7 @@ impl Toggle for Orientation {
     fn toggle(&mut self) -> Result<()> {
         self.locked = !self.locked;
 
-        let msg = IpcMessage::Orientation { lock: None, unlock: self.locked };
+        let msg = IpcMessage::Orientation { lock: None, unlock: !self.locked };
         catacomb::send_message(msg)?;
 
         Ok(())
