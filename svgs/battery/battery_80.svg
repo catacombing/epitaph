@@ -9,14 +9,14 @@
    xmlns:svg="http://www.w3.org/2000/svg">
   <g transform="translate(-50,-75)">
     <rect
-       style="fill:#666666;stroke-width:0.118325"
+       style="fill:#888888;stroke-width:0.118325"
        id="rect270-3"
        width="20"
        height="40"
        x="130"
        y="75" />
     <rect
-       style="fill:#666666;stroke-width:0.313059"
+       style="fill:#888888;stroke-width:0.313059"
        id="rect382-6"
        width="7"
        height="20"

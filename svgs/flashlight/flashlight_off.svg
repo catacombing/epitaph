@@ -23,12 +23,12 @@
          d="m 37.736936,161.6068 h 55 v 75 h -55 z M 70.237,200 a 5,5 0 0 0 -5,-5 5,5 0 0 0 -5,5 5,5 0 0 0 5,5 5,5 0 0 0 5,-5 z" /></clipPath></defs><g
      id="g2128"
      transform="translate(0,-150)"><path
-       style="fill:#666666;fill-opacity:1;stroke-width:4.99999;paint-order:markers fill stroke"
+       style="fill:#888888;fill-opacity:1;stroke-width:4.99999;paint-order:markers fill stroke"
        d="m 55.236936,231.6068 v -45 l -12.5,-20 h 45 l -12.5,20 v 45 z"
        id="path1879"
        clip-path="url(#clipPath2040)"
        transform="translate(-42.736936,-6.6068)" /><rect
-       style="fill:#666666;fill-opacity:1;stroke-width:4.99999;paint-order:markers fill stroke"
+       style="fill:#888888;fill-opacity:1;stroke-width:4.99999;paint-order:markers fill stroke"
        id="rect2124"
        width="45"
        height="8"

@@ -100,18 +100,7 @@ impl PanelModule for Cellular {
     }
 
     fn content(&self) -> PanelModuleContent {
-        if self.disabled {
-            return PanelModuleContent::Svg(Svg::CellularDisabled);
-        }
-
-        PanelModuleContent::Svg(match self.signal_strength {
-            -40.. => Svg::Cellular100,
-            -60..=-41 => Svg::Cellular80,
-            -70..=-61 => Svg::Cellular60,
-            -80..=-71 => Svg::Cellular40,
-            -90..=-81 => Svg::Cellular20,
-            _ => Svg::Cellular0,
-        })
+        PanelModuleContent::Svg(self.svg())
     }
 }
 
@@ -130,11 +119,19 @@ impl Toggle for Cellular {
         Ok(())
     }
 
+    /// Current cellular status SVG.
     fn svg(&self) -> Svg {
         if self.disabled {
-            Svg::CellularDisabled
-        } else {
-            Svg::Cellular100
+            return Svg::CellularDisabled;
+        }
+
+        match self.signal_strength {
+            -40.. => Svg::Cellular100,
+            -60..=-41 => Svg::Cellular80,
+            -70..=-61 => Svg::Cellular60,
+            -80..=-71 => Svg::Cellular40,
+            -90..=-81 => Svg::Cellular20,
+            _ => Svg::Cellular0,
         }
     }
 

@@ -119,20 +119,7 @@ impl PanelModule for Wifi {
     }
 
     fn content(&self) -> PanelModuleContent {
-        if self.disabled {
-            return PanelModuleContent::Svg(Svg::WifiDisabled);
-        }
-
-        PanelModuleContent::Svg(match (self.connected, self.signal_strength) {
-            (true, -40..) => Svg::WifiConnected100,
-            (true, -60..=-41) => Svg::WifiConnected75,
-            (true, -75..=-61) => Svg::WifiConnected50,
-            (true, _) => Svg::WifiConnected25,
-            (false, -40..) => Svg::WifiDisconnected100,
-            (false, -60..=-41) => Svg::WifiDisconnected75,
-            (false, -75..=-61) => Svg::WifiDisconnected50,
-            (false, _) => Svg::WifiDisconnected25,
-        })
+        PanelModuleContent::Svg(self.svg())
     }
 }
 
@@ -151,11 +138,21 @@ impl Toggle for Wifi {
         Ok(())
     }
 
+    /// Current wifi status SVG.
     fn svg(&self) -> Svg {
         if self.disabled {
-            Svg::WifiDisabled
-        } else {
-            Svg::WifiConnected100
+            return Svg::WifiDisabled;
+        }
+
+        match (self.connected, self.signal_strength) {
+            (true, -40..) => Svg::WifiConnected100,
+            (true, -60..=-41) => Svg::WifiConnected75,
+            (true, -75..=-61) => Svg::WifiConnected50,
+            (true, _) => Svg::WifiConnected25,
+            (false, -40..) => Svg::WifiDisconnected100,
+            (false, -60..=-41) => Svg::WifiDisconnected75,
+            (false, -75..=-61) => Svg::WifiDisconnected50,
+            (false, _) => Svg::WifiDisconnected25,
         }
     }
 

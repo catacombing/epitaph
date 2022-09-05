@@ -19,7 +19,7 @@
     </clipPath>
   </defs>
   <rect
-     style="fill:#666666;fill-opacity:1;stroke-width:0.23665"
+     style="fill:#888888;fill-opacity:1;stroke-width:0.23665"
      transform="translate(-50,-15)"
      clip-path="url(#clipPath5990)"
      id="rect270-3-7-5-9-7"
@@ -28,7 +28,7 @@
      x="70"
      y="30" />
   <rect
-     style="fill:#666666;stroke-width:0.313059"
+     style="fill:#888888;stroke-width:0.313059"
      transform="translate(-50,-15)"
      id="rect382-6-5-6-1-0"
      width="7"
@@ -44,7 +44,7 @@
      x="50"
      y="30" />
   <path
-     style="fill:#666666;stroke-width:0.264583"
+     style="fill:#888888;stroke-width:0.264583"
      d="m 40.000001,40 h 10 l -5,30 20,-40 h -15 l 10,-30.00000011444091 h -21 z"
      id="path422" />
 </svg>
