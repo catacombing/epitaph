@@ -475,6 +475,8 @@ pub enum Svg {
     Brightness,
     FlashlightOn,
     FlashlightOff,
+    OrientationLocked,
+    OrientationUnlocked,
 }
 
 impl Svg {
@@ -512,6 +514,8 @@ impl Svg {
             Self::Brightness => (20, 20),
             Self::FlashlightOn => (45, 75),
             Self::FlashlightOff => (45, 75),
+            Self::OrientationLocked => (73, 65),
+            Self::OrientationUnlocked => (73, 65),
         }
     }
 
@@ -549,6 +553,8 @@ impl Svg {
             Self::Brightness => include_str!("../svgs/brightness/brightness.svg"),
             Self::FlashlightOn => include_str!("../svgs/flashlight/flashlight_on.svg"),
             Self::FlashlightOff => include_str!("../svgs/flashlight/flashlight_off.svg"),
+            Self::OrientationLocked => include_str!("../svgs/orientation/orientation_locked.svg"),
+            Self::OrientationUnlocked => include_str!("../svgs/orientation/orientation_unlocked.svg"),
         }
     }
 }

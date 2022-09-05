@@ -36,6 +36,7 @@ use crate::module::brightness::Brightness;
 use crate::module::cellular::Cellular;
 use crate::module::clock::Clock;
 use crate::module::flashlight::Flashlight;
+use crate::module::orientation::Orientation;
 use crate::module::wifi::Wifi;
 use crate::module::Module;
 use crate::panel::Panel;
@@ -490,6 +491,7 @@ impl ProtocolStates {
 
 /// Panel modules.
 struct Modules {
+    orientation: Orientation,
     brightness: Brightness,
     flashlight: Flashlight,
     cellular: Cellular,
@@ -501,6 +503,7 @@ struct Modules {
 impl Modules {
     fn new(event_loop: &LoopHandle<'static, State>) -> Result<Self> {
         Ok(Self {
+            orientation: Orientation::new(),
             brightness: Brightness::new()?,
             flashlight: Flashlight::new(),
             cellular: Cellular::new(event_loop)?,
@@ -511,18 +514,27 @@ impl Modules {
     }
 
     /// Get all modules as sorted immutable slice.
-    fn as_slice(&self) -> [&dyn Module; 6] {
-        [&self.brightness, &self.clock, &self.cellular, &self.wifi, &self.battery, &self.flashlight]
+    fn as_slice(&self) -> [&dyn Module; 7] {
+        [
+            &self.brightness,
+            &self.clock,
+            &self.cellular,
+            &self.wifi,
+            &self.battery,
+            &self.orientation,
+            &self.flashlight,
+        ]
     }
 
     /// Get all modules as sorted mutable slice.
-    fn as_slice_mut(&mut self) -> [&mut dyn Module; 6] {
+    fn as_slice_mut(&mut self) -> [&mut dyn Module; 7] {
         [
             &mut self.brightness,
             &mut self.clock,
             &mut self.cellular,
             &mut self.wifi,
             &mut self.battery,
+            &mut self.orientation,
             &mut self.flashlight,
         ]
     }
