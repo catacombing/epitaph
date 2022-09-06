@@ -8,8 +8,8 @@ pub mod brightness;
 pub mod cellular;
 pub mod clock;
 pub mod flashlight;
-pub mod wifi;
 pub mod orientation;
+pub mod wifi;
 
 /// Panel module.
 pub trait Module {

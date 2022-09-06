@@ -554,7 +554,9 @@ impl Svg {
             Self::FlashlightOn => include_str!("../svgs/flashlight/flashlight_on.svg"),
             Self::FlashlightOff => include_str!("../svgs/flashlight/flashlight_off.svg"),
             Self::OrientationLocked => include_str!("../svgs/orientation/orientation_locked.svg"),
-            Self::OrientationUnlocked => include_str!("../svgs/orientation/orientation_unlocked.svg"),
+            Self::OrientationUnlocked => {
+                include_str!("../svgs/orientation/orientation_unlocked.svg")
+            },
         }
     }
 }
