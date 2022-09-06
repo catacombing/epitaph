@@ -1,6 +1,6 @@
 //! Display orientation lock.
 
-use catacomb::{self, IpcMessage};
+use catacomb_ipc::{self, IpcMessage};
 
 use crate::module::{DrawerModule, Module, Toggle};
 use crate::text::Svg;
@@ -27,7 +27,7 @@ impl Toggle for Orientation {
         self.locked = !self.locked;
 
         let msg = IpcMessage::Orientation { lock: None, unlock: !self.locked };
-        catacomb::send_message(msg)?;
+        catacomb_ipc::send_message(msg)?;
 
         Ok(())
     }
