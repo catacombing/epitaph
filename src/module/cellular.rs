@@ -71,13 +71,13 @@ impl Cellular {
         };
 
         if let Ok(strength) = f32::from_str(&output[start_offset..end_offset]) {
-            let new_strength = strength as i32;
-            let old_strength =
-                mem::replace(&mut state.modules.cellular.signal_strength, new_strength);
-            let old_disabled = mem::take(&mut state.modules.cellular.disabled);
+            let old_svg = state.modules.cellular.svg();
+
+            state.modules.cellular.signal_strength = strength as i32;
+            state.modules.cellular.disabled = false;
 
             // Redraw if value changed.
-            if new_strength != old_strength || old_disabled {
+            if state.modules.cellular.svg() != old_svg {
                 state.request_frame();
             }
         }

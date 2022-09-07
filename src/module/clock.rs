@@ -18,9 +18,9 @@ impl Clock {
         event_loop.insert_source(Timer::immediate(), move |now, _, state| {
             state.request_frame();
 
-            // Calculate seconds until next minute.
+            // Calculate seconds until next minute. We add one second just to be sure.
             let total_secs = UNIX_EPOCH.elapsed().unwrap().as_secs();
-            let remaining = Duration::from_secs(60 - (total_secs % 60));
+            let remaining = Duration::from_secs(60 - (total_secs % 60) + 1);
 
             TimeoutAction::ToInstant(now + remaining)
         })?;

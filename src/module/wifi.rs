@@ -92,11 +92,13 @@ impl Wifi {
         };
 
         if let Ok(new_strength) = i32::from_str(&output[start_offset..end_offset]) {
-            let old_strength = mem::replace(&mut state.modules.wifi.signal_strength, new_strength);
-            let old_disabled = mem::take(&mut state.modules.wifi.disabled);
+            let old_svg = state.modules.wifi.svg();
+
+            state.modules.wifi.signal_strength = new_strength;
+            state.modules.wifi.disabled = false;
 
             // Redraw if value changed.
-            if new_strength != old_strength || old_disabled {
+            if state.modules.wifi.svg() != old_svg {
                 state.request_frame();
             }
         }
