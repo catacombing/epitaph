@@ -509,7 +509,7 @@ impl ModulePositioner {
             start_x = end_x + self.module_padding;
             if start_x >= self.size.width - self.edge_padding {
                 start_x = self.edge_padding;
-                start_y = end_y;
+                start_y = end_y + self.module_padding;
             }
         }
 
