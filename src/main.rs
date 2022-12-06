@@ -69,9 +69,6 @@ const ANIMATION_THRESHOLD: f64 = 0.25;
 /// Step size for drawer animation.
 const ANIMATION_STEP: f64 = 20.;
 
-/// Percentage of height reserved at bottom of drawer for closing it.
-const DRAWER_CLOSE_PERCENTAGE: f64 = 0.95;
-
 /// Convenience result wrapper.
 pub type Result<T> = StdResult<T, Box<dyn Error>>;
 
@@ -111,6 +108,7 @@ pub struct State {
     active_touch: Option<i32>,
     drawer_opening: bool,
     drawer_offset: f64,
+    last_touch_y: f64,
     modules: Modules,
     terminated: bool,
     reaper: Reaper,
@@ -144,6 +142,7 @@ impl State {
             drawer_opening: Default::default(),
             drawer_offset: Default::default(),
             active_touch: Default::default(),
+            last_touch_y: Default::default(),
             terminated: Default::default(),
             drawer: Default::default(),
             touch: Default::default(),
@@ -365,24 +364,25 @@ impl TouchHandler for State {
                 eprintln!("Error: Couldn't open drawer: {}", err);
             }
 
-            self.drawer_offset = position.1;
+            self.last_touch_y = position.1;
             self.active_touch = Some(id);
             self.drawer_opening = true;
         } else if self.drawer().owns_surface(&surface) {
-            if position.1 >= self.drawer().max_offset() * DRAWER_CLOSE_PERCENTAGE {
-                self.drawer_offset = position.1;
+            let touch_start = self.drawer.as_mut().unwrap().touch_down(
+                id,
+                position,
+                &mut self.modules.as_slice_mut(),
+            );
+
+            // Check drawer touch status.
+            if !touch_start.module_touched {
+                // Initiate closing drawer if no module was touched.
+                self.last_touch_y = position.1;
                 self.active_touch = Some(id);
                 self.drawer_opening = false;
-            } else {
-                let dirty = self.drawer.as_mut().unwrap().touch_down(
-                    id,
-                    position,
-                    &mut self.modules.as_slice_mut(),
-                );
-
-                if dirty {
-                    self.request_frame();
-                }
+            } else if touch_start.requires_redraw {
+                // Redraw if slider was touched.
+                self.request_frame();
             }
         }
     }
@@ -421,7 +421,11 @@ impl TouchHandler for State {
         position: (f64, f64),
     ) {
         if self.active_touch == Some(id) {
-            self.drawer_offset = position.1;
+            let delta = position.1 - self.last_touch_y;
+            self.drawer_offset += delta;
+
+            self.last_touch_y = position.1;
+
             self.drawer().request_frame();
         } else {
             let dirty = self.drawer.as_mut().unwrap().touch_motion(

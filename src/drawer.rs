@@ -200,7 +200,7 @@ impl Drawer {
         id: i32,
         position: (f64, f64),
         modules: &mut [&mut dyn Module],
-    ) -> bool {
+    ) -> TouchStart {
         self.touch_position = scale_touch(position, self.scale_factor);
         self.touch_id = Some(id);
 
@@ -208,18 +208,20 @@ impl Drawer {
         let positioner = ModulePositioner::new(self.size.into(), self.scale_factor as i16);
         let (index, x) = match positioner.module_position(modules, self.touch_position) {
             Some((index, x, _)) => (index, x),
-            None => return false,
+            None => return TouchStart { requires_redraw: false, module_touched: false },
         };
         self.touch_module = Some(index);
 
         // Update sliders.
-        match modules[index].drawer_module() {
+        let requires_redraw = match modules[index].drawer_module() {
             Some(DrawerModule::Slider(slider)) => {
                 let _ = slider.set_value(x);
                 true
             },
             _ => false,
-        }
+        };
+
+        TouchStart { requires_redraw, module_touched: true }
     }
 
     /// Handle touch motion events.
@@ -286,6 +288,13 @@ impl Drawer {
         let scale_factor = self.scale_factor;
         let _ = self.renderer.resize(size, scale_factor);
     }
+}
+
+/// Drawer touch start status.
+#[derive(Copy, Clone)]
+pub struct TouchStart {
+    pub requires_redraw: bool,
+    pub module_touched: bool,
 }
 
 /// Batched drawer module rendering.
