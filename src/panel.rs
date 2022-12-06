@@ -70,7 +70,7 @@ impl Panel {
             .exclusive_zone(PANEL_HEIGHT)
             .size((0, PANEL_HEIGHT as u32))
             .namespace("panel")
-            .map(&queue, layer, surface, Layer::Top)?;
+            .map(&queue, layer, surface, Layer::Bottom)?;
 
         // Initialize the renderer.
         let mut renderer = Renderer::new(egl_context, 1)?;
