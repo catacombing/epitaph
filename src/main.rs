@@ -77,7 +77,7 @@ fn main() {
     let mut connection = match Connection::connect_to_env() {
         Ok(connection) => connection,
         Err(err) => {
-            eprintln!("Error: {}", err);
+            eprintln!("Error: {err}");
             process::exit(1);
         },
     };
@@ -188,12 +188,12 @@ impl State {
     fn draw(&mut self, surface: &WlSurface) {
         if self.panel().owns_surface(surface) {
             if let Err(error) = self.panel.as_mut().unwrap().draw(&self.modules.as_slice()) {
-                eprintln!("Panel rendering failed: {:?}", error);
+                eprintln!("Panel rendering failed: {error:?}");
             }
         } else if self.drawer().owns_surface(surface) {
             let drawer = self.drawer.as_mut().unwrap();
             if let Err(error) = drawer.draw(&mut self.modules.as_slice_mut(), self.drawer_offset) {
-                eprintln!("Drawer rendering failed: {:?}", error);
+                eprintln!("Drawer rendering failed: {error:?}");
             }
         }
     }
@@ -361,7 +361,7 @@ impl TouchHandler for State {
             let compositor = &self.protocol_states.compositor;
             let layer_state = &mut self.protocol_states.layer;
             if let Err(err) = self.drawer.as_mut().unwrap().show(compositor, layer_state) {
-                eprintln!("Error: Couldn't open drawer: {}", err);
+                eprintln!("Error: Couldn't open drawer: {err}");
             }
 
             self.last_touch_y = position.1;

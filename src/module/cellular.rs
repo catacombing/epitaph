@@ -38,7 +38,7 @@ impl Cellular {
 
             // Setup signal strength updates.
             let mut mmcli = Command::new("mmcli");
-            mmcli.args(&["-m", "0", "--signal-get"]);
+            mmcli.args(["-m", "0", "--signal-get"]);
             state.reaper.watch(mmcli, Box::new(Self::mmcli_callback));
 
             TimeoutAction::ToInstant(now + UPDATE_INTERVAL)

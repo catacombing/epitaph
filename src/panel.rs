@@ -12,9 +12,9 @@ use smithay_client_toolkit::shell::layer::{
 use wayland_egl::WlEglSurface;
 
 use crate::module::{Alignment, Module, PanelModuleContent};
-use crate::renderer::Renderer;
+use crate::renderer::{Renderer, TextRenderer};
 use crate::text::{GlRasterizer, Svg};
-use crate::vertex::{GlVertex, VertexBatcher};
+use crate::vertex::VertexBatcher;
 use crate::{gl, NativeDisplay, Result, Size, State, GL_ATTRIBUTES};
 
 /// Panel height in pixels with a scale factor of 1.
@@ -155,7 +155,7 @@ impl Panel {
 
 /// Run of multiple panel modules.
 struct PanelRun<'a> {
-    batcher: &'a mut VertexBatcher<GlVertex>,
+    batcher: &'a mut VertexBatcher<TextRenderer>,
     rasterizer: &'a mut GlRasterizer,
     alignment: Alignment,
     scale_factor: i16,
@@ -172,7 +172,7 @@ impl<'a> PanelRun<'a> {
             scale_factor: renderer.scale_factor as i16,
             metrics: renderer.rasterizer.metrics()?,
             rasterizer: &mut renderer.rasterizer,
-            batcher: &mut renderer.batcher,
+            batcher: &mut renderer.text_batcher,
             width: 0,
         })
     }
@@ -233,7 +233,7 @@ impl<'a> PanelRun<'a> {
         let svg = self.rasterizer.rasterize_svg(svg, MODULE_WIDTH, None)?;
 
         // Calculate Y to center SVG.
-        let y = (self.size.height as i16 - svg.height as i16) / 2;
+        let y = (self.size.height as i16 - svg.height) / 2;
 
         for vertex in svg.vertices(self.width, y).into_iter().flatten() {
             self.batcher.push(svg.texture_id, vertex);

@@ -12,15 +12,21 @@ use wayland_egl::WlEglSurface;
 
 use crate::module::{DrawerModule, Module, Slider, Toggle};
 use crate::panel::PANEL_HEIGHT;
-use crate::renderer::Renderer;
-use crate::text::{GlRasterizer, Svg};
-use crate::vertex::{GlVertex, VertexBatcher};
+use crate::renderer::{RectRenderer, Renderer, TextRenderer};
+use crate::text::GlRasterizer;
+use crate::vertex::{RectVertex, VertexBatcher};
 use crate::{gl, NativeDisplay, Result, Size, State, GL_ATTRIBUTES};
 
 /// Slider module height.
 ///
 /// This should be less than `MODULE_SIZE`.
 const SLIDER_HEIGHT: i16 = MODULE_SIZE as i16 - 16;
+
+/// Color of slider handle and active buttons,
+const MODULE_COLOR_FG: [u8; 4] = [85, 85, 85, 255];
+
+/// Color of the slider tray and inactive buttons.
+const MODULE_COLOR_BG: [u8; 4] = [51, 51, 51, 255];
 
 /// Padding between drawer modules.
 const MODULE_PADDING: i16 = 16;
@@ -299,7 +305,8 @@ pub struct TouchStart {
 
 /// Batched drawer module rendering.
 struct DrawerRun<'a> {
-    batcher: &'a mut VertexBatcher<GlVertex>,
+    text_batcher: &'a mut VertexBatcher<TextRenderer>,
+    rect_batcher: &'a mut VertexBatcher<RectRenderer>,
     rasterizer: &'a mut GlRasterizer,
     positioner: ModulePositioner,
     column: i16,
@@ -311,7 +318,8 @@ impl<'a> DrawerRun<'a> {
         Self {
             positioner: ModulePositioner::new(renderer.size, renderer.scale_factor as i16),
             rasterizer: &mut renderer.rasterizer,
-            batcher: &mut renderer.batcher,
+            text_batcher: &mut renderer.text_batcher,
+            rect_batcher: &mut renderer.rect_batcher,
             column: 0,
             row: 0,
         }
@@ -327,22 +335,14 @@ impl<'a> DrawerRun<'a> {
 
     /// Add a slider to the drawer.
     fn batch_slider(&mut self, slider: &dyn Slider) -> Result<()> {
-        let width = (self.positioner.slider_size.width / self.positioner.scale_factor) as u32;
-        let height = (self.positioner.slider_size.height / self.positioner.scale_factor) as u32;
+        let window_width = self.positioner.size.width;
+        let window_height = self.positioner.size.height;
+
+        let width = self.positioner.slider_size.width;
+        let height = self.positioner.slider_size.height;
 
         // Rasterize slider icon.
         let icon = self.rasterizer.rasterize_svg(slider.svg(), ICON_HEIGHT, None)?;
-
-        // Rasterize slider background.
-        let tray = self.rasterizer.rasterize_svg(Svg::ButtonOff, width, height)?;
-
-        // Rasterize slider foreground, if it is non-zero.
-        let slider_width = (width as f64 * slider.get_value()) as u32;
-        let slider = if slider_width > 0 {
-            self.rasterizer.rasterize_svg(Svg::ButtonOn, slider_width, height).ok()
-        } else {
-            None
-        };
 
         // Ensure we're in an empty row.
         if self.column != 0 {
@@ -357,14 +357,26 @@ impl<'a> DrawerRun<'a> {
         // Update active row.
         self.row += 1;
 
-        for vertex in tray.vertices(x, y).into_iter().flatten() {
-            self.batcher.push(tray.texture_id, vertex);
+        // Stage tray vertices.
+        let tray =
+            RectVertex::new(window_width, window_height, x, y, width, height, &MODULE_COLOR_BG);
+        for vertex in tray {
+            self.rect_batcher.push(0, vertex);
         }
 
-        if let Some(slider) = slider {
-            for vertex in slider.vertices(x, y).into_iter().flatten() {
-                self.batcher.push(slider.texture_id, vertex);
-            }
+        // Stage slider vertices.
+        let slider_width = (width as f64 * slider.get_value()) as i16;
+        let slider = RectVertex::new(
+            window_width,
+            window_height,
+            x,
+            y,
+            slider_width,
+            height,
+            &MODULE_COLOR_FG,
+        );
+        for vertex in slider {
+            self.rect_batcher.push(0, vertex);
         }
 
         // Calculate icon origin.
@@ -372,7 +384,7 @@ impl<'a> DrawerRun<'a> {
         let icon_y = y + (self.positioner.slider_size.height - icon.height) / 2;
 
         for vertex in icon.vertices(icon_x, icon_y).into_iter().flatten() {
-            self.batcher.push(icon.texture_id, vertex);
+            self.text_batcher.push(icon.texture_id, vertex);
         }
 
         Ok(())
@@ -380,17 +392,19 @@ impl<'a> DrawerRun<'a> {
 
     /// Add a toggle button to the drawer.
     fn batch_toggle(&mut self, toggle: &dyn Toggle) -> Result<()> {
-        let svg = self.rasterizer.rasterize_svg(toggle.svg(), None, ICON_HEIGHT)?;
+        let window_width = self.positioner.size.width;
+        let window_height = self.positioner.size.height;
 
-        let button_svg = if toggle.enabled() { Svg::ButtonOn } else { Svg::ButtonOff };
-        let backdrop = self.rasterizer.rasterize_svg(button_svg, MODULE_SIZE, MODULE_SIZE)?;
+        let size = self.positioner.module_size;
+
+        let svg = self.rasterizer.rasterize_svg(toggle.svg(), None, ICON_HEIGHT)?;
 
         // Calculate module origin point.
         let (x, y) = self.positioner.position(self.column, self.row);
 
         // Calculate icon origin point.
-        let icon_x = x + (backdrop.width - svg.width) / 2;
-        let icon_y = y + (backdrop.height - svg.height) / 2;
+        let icon_x = x + (size - svg.width) / 2;
+        let icon_y = y + (size - svg.height) / 2;
 
         // Update active column/row.
         self.column += 1;
@@ -400,13 +414,15 @@ impl<'a> DrawerRun<'a> {
         }
 
         // Batch icon backdrop.
-        for vertex in backdrop.vertices(x, y).into_iter().flatten() {
-            self.batcher.push(backdrop.texture_id, vertex);
+        let color = if toggle.enabled() { MODULE_COLOR_FG } else { MODULE_COLOR_BG };
+        let backdrop = RectVertex::new(window_width, window_height, x, y, size, size, &color);
+        for vertex in backdrop {
+            self.rect_batcher.push(0, vertex);
         }
 
         // Batch icon.
         for vertex in svg.vertices(icon_x, icon_y).into_iter().flatten() {
-            self.batcher.push(svg.texture_id, vertex);
+            self.text_batcher.push(svg.texture_id, vertex);
         }
 
         Ok(())
@@ -414,9 +430,14 @@ impl<'a> DrawerRun<'a> {
 
     /// Draw all modules in this run.
     fn draw(self) {
-        let mut batches = self.batcher.batches();
-        while let Some(batch) = batches.next() {
-            batch.draw();
+        let mut rect_batches = self.rect_batcher.batches();
+        while let Some(rect_batch) = rect_batches.next() {
+            rect_batch.draw();
+        }
+
+        let mut text_batches = self.text_batcher.batches();
+        while let Some(text_batch) = text_batches.next() {
+            text_batch.draw();
         }
     }
 }
@@ -425,7 +446,6 @@ impl<'a> DrawerRun<'a> {
 struct ModulePositioner {
     slider_size: Size<i16>,
     module_padding: i16,
-    scale_factor: i16,
     edge_padding: i16,
     panel_height: i16,
     module_size: i16,
@@ -452,16 +472,7 @@ impl ModulePositioner {
         let slider_width = size.width - 2 * edge_padding;
         let slider_size = Size::new(slider_width, slider_height);
 
-        Self {
-            module_padding,
-            edge_padding,
-            panel_height,
-            scale_factor,
-            slider_size,
-            module_size,
-            columns,
-            size,
-        }
+        Self { module_padding, edge_padding, panel_height, slider_size, module_size, columns, size }
     }
 
     /// Get cell origin point.

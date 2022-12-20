@@ -6,7 +6,7 @@ use gl_generator::{Api, Fallbacks, GlobalGenerator, Profile, Registry};
 
 fn main() {
     let dest = env::var("OUT_DIR").unwrap();
-    let mut file = File::create(&Path::new(&dest).join("gl_bindings.rs")).unwrap();
+    let mut file = File::create(Path::new(&dest).join("gl_bindings.rs")).unwrap();
 
     Registry::new(Api::Gles2, (2, 0), Profile::Core, Fallbacks::All, [
         "GL_OES_vertex_array_object",

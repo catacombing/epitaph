@@ -43,7 +43,7 @@ impl Reaper {
         let child = match child.spawn() {
             Ok(child) => child,
             Err(err) => {
-                println!("Error: Child process failed: {}", err);
+                println!("Error: Child process failed: {err}");
                 return;
             },
         };

@@ -3,7 +3,7 @@
 use std::borrow::Cow;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::{cmp, mem, ptr};
+use std::{cmp, mem};
 
 use crossfont::{
     BitmapBuffer, FontDesc, FontKey, GlyphKey, Metrics, Rasterize, RasterizedGlyph, Rasterizer,
@@ -13,7 +13,8 @@ use tiny_skia::{Pixmap, Transform};
 use usvg::{FitTo, Options, Tree};
 
 use crate::gl::types::GLuint;
-use crate::{gl, Result};
+use crate::renderer::Texture;
+use crate::Result;
 
 /// Width and height of the glyph atlas texture.
 ///
@@ -226,7 +227,7 @@ impl GlRasterizer {
 /// ```
 pub struct Atlas {
     /// OpenGL texture ID.
-    textures: Vec<GLuint>,
+    textures: Vec<Texture>,
     /// Largest glyph's height in this row.
     row_height: i32,
     /// X position for writing new glyphs.
@@ -238,20 +239,10 @@ pub struct Atlas {
 impl Default for Atlas {
     fn default() -> Self {
         Self {
-            textures: vec![Self::create_texture()],
+            textures: vec![Texture::new(ATLAS_SIZE, ATLAS_SIZE)],
             row_height: Default::default(),
             cursor_x: Default::default(),
             cursor_y: Default::default(),
-        }
-    }
-}
-
-impl Drop for Atlas {
-    fn drop(&mut self) {
-        for texture in &self.textures {
-            unsafe {
-                gl::DeleteTextures(1, texture);
-            }
         }
     }
 }
@@ -274,31 +265,21 @@ impl Atlas {
 
         // Create a new texture if the row's available height is too little.
         if self.cursor_y + entry.height > ATLAS_SIZE {
-            self.textures.push(Self::create_texture());
+            self.textures.push(Texture::new(ATLAS_SIZE, ATLAS_SIZE));
             self.row_height = 0;
             self.cursor_x = 0;
             self.cursor_y = 0;
         }
 
         // Upload entry's buffer to OpenGL.
-        let active_texture = self.textures[self.textures.len() - 1];
-        unsafe {
-            gl::BindTexture(gl::TEXTURE_2D, active_texture);
-
-            gl::TexSubImage2D(
-                gl::TEXTURE_2D,
-                0,
-                self.cursor_x,
-                self.cursor_y,
-                entry.width,
-                entry.height,
-                gl::RGBA,
-                gl::UNSIGNED_BYTE,
-                entry.buffer.as_ptr() as *const _,
-            );
-
-            gl::BindTexture(gl::TEXTURE_2D, 0);
-        }
+        let active_texture = &self.textures[self.textures.len() - 1];
+        active_texture.upload_buffer(
+            self.cursor_x,
+            self.cursor_y,
+            entry.width,
+            entry.height,
+            &entry.buffer,
+        );
 
         // Generate UV coordinates.
         let uv_bot = self.cursor_y as f32 / ATLAS_SIZE as f32;
@@ -316,40 +297,13 @@ impl Atlas {
             uv_left,
             uv_bot,
             multicolor: entry.multicolor,
-            texture_id: active_texture,
+            texture_id: active_texture.id,
             advance: entry.advance,
             height: entry.height as i16,
             width: entry.width as i16,
             left: entry.left as i16,
             top: entry.top as i16,
         })
-    }
-
-    /// Create a new atlas texture.
-    fn create_texture() -> GLuint {
-        let mut texture_id = 0;
-        unsafe {
-            gl::PixelStorei(gl::UNPACK_ALIGNMENT, 1);
-            gl::GenTextures(1, &mut texture_id);
-            gl::BindTexture(gl::TEXTURE_2D, texture_id);
-            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::CLAMP_TO_EDGE as i32);
-            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::CLAMP_TO_EDGE as i32);
-            gl::TexImage2D(
-                gl::TEXTURE_2D,
-                0,
-                gl::RGBA as i32,
-                ATLAS_SIZE,
-                ATLAS_SIZE,
-                0,
-                gl::RGBA,
-                gl::UNSIGNED_BYTE,
-                ptr::null(),
-            );
-            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as i32);
-            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as i32);
-            gl::BindTexture(gl::TEXTURE_2D, 0);
-        }
-        texture_id
     }
 }
 
@@ -470,8 +424,6 @@ pub enum Svg {
     Cellular20,
     Cellular0,
     CellularDisabled,
-    ButtonOn,
-    ButtonOff,
     Brightness,
     FlashlightOn,
     FlashlightOff,
@@ -509,8 +461,6 @@ impl Svg {
             Self::Cellular20 => (20, 15),
             Self::Cellular0 => (20, 15),
             Self::CellularDisabled => (20, 18),
-            Self::ButtonOn => (1, 1),
-            Self::ButtonOff => (1, 1),
             Self::Brightness => (20, 20),
             Self::FlashlightOn => (45, 75),
             Self::FlashlightOff => (45, 75),
@@ -548,8 +498,6 @@ impl Svg {
             Self::Cellular20 => include_str!("../svgs/cellular/cellular_20.svg"),
             Self::Cellular0 => include_str!("../svgs/cellular/cellular_0.svg"),
             Self::CellularDisabled => include_str!("../svgs/cellular/cellular_disabled.svg"),
-            Self::ButtonOn => include_str!("../svgs/button_on.svg"),
-            Self::ButtonOff => include_str!("../svgs/button_off.svg"),
             Self::Brightness => include_str!("../svgs/brightness/brightness.svg"),
             Self::FlashlightOn => include_str!("../svgs/flashlight/flashlight_on.svg"),
             Self::FlashlightOff => include_str!("../svgs/flashlight/flashlight_off.svg"),

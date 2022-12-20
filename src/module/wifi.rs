@@ -43,12 +43,12 @@ impl Wifi {
 
             // Setup signal strength updates.
             let mut iw = Command::new("iw");
-            iw.args(&["dev", "wlan0", "link"]);
+            iw.args(["dev", "wlan0", "link"]);
             state.reaper.watch(iw, Box::new(Self::iw_callback));
 
             // Setup internet connectivity updates.
             let mut ping = Command::new("ping");
-            ping.args(&["-c", "1", PING_IP]);
+            ping.args(["-c", "1", PING_IP]);
             state.reaper.watch(ping, Box::new(Self::ping_callback));
 
             TimeoutAction::ToInstant(now + UPDATE_INTERVAL)
