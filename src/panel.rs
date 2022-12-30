@@ -126,10 +126,22 @@ impl Panel {
     }
 
     /// Reconfigure the window.
-    pub fn reconfigure(&mut self, configure: LayerSurfaceConfigure) {
+    pub fn reconfigure(
+        &mut self,
+        compositor: &CompositorState,
+        queue: &QueueHandle<State>,
+        configure: LayerSurfaceConfigure,
+    ) {
+        // Update size.
         let new_width = configure.new_size.0 as i32;
         let size = Size::new(new_width, PANEL_HEIGHT) * self.scale_factor as f64;
         self.resize(size);
+
+        // Set opaque region.
+        if let Ok(region) = compositor.create_region(queue) {
+            region.add(0, 0, new_width, PANEL_HEIGHT);
+            self.window.wl_surface().set_opaque_region(Some(&region))
+        }
     }
 
     /// Request a new frame.

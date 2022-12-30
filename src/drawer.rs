@@ -124,9 +124,24 @@ impl Drawer {
     }
 
     /// Render the panel.
-    pub fn draw(&mut self, modules: &mut [&mut dyn Module], mut offset: f64) -> Result<()> {
+    pub fn draw(
+        &mut self,
+        compositor: &CompositorState,
+        queue: &QueueHandle<State>,
+        modules: &mut [&mut dyn Module],
+        mut offset: f64,
+    ) -> Result<()> {
         offset = (offset * self.scale_factor as f64).min(self.size.height as f64);
         self.frame_pending = false;
+
+        // Update opaque region.
+        let region = compositor.create_region(queue).ok();
+        if let Some((window, region)) = self.window.as_ref().zip(region) {
+            let logical_width = self.size.width / self.scale_factor;
+            let logical_height = offset as i32 / self.scale_factor;
+            region.add(0, 0, logical_width, logical_height);
+            window.wl_surface().set_opaque_region(Some(&region))
+        }
 
         self.renderer.draw(|renderer| unsafe {
             // Transparently clear entire screen.

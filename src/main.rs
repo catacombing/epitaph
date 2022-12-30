@@ -185,14 +185,19 @@ impl State {
     }
 
     /// Draw window associated with the surface.
-    fn draw(&mut self, surface: &WlSurface) {
+    fn draw(&mut self, queue: &QueueHandle<Self>, surface: &WlSurface) {
         if self.panel().owns_surface(surface) {
             if let Err(error) = self.panel.as_mut().unwrap().draw(&self.modules.as_slice()) {
                 eprintln!("Panel rendering failed: {error:?}");
             }
         } else if self.drawer().owns_surface(surface) {
             let drawer = self.drawer.as_mut().unwrap();
-            if let Err(error) = drawer.draw(&mut self.modules.as_slice_mut(), self.drawer_offset) {
+            if let Err(error) = drawer.draw(
+                &self.protocol_states.compositor,
+                queue,
+                &mut self.modules.as_slice_mut(),
+                self.drawer_offset,
+            ) {
                 eprintln!("Drawer rendering failed: {error:?}");
             }
         }
@@ -229,7 +234,7 @@ impl CompositorHandler for State {
     fn scale_factor_changed(
         &mut self,
         _connection: &Connection,
-        _queue: &QueueHandle<Self>,
+        queue: &QueueHandle<Self>,
         surface: &WlSurface,
         factor: i32,
     ) {
@@ -238,17 +243,17 @@ impl CompositorHandler for State {
         } else if self.drawer().owns_surface(surface) {
             self.drawer().set_scale_factor(factor);
         }
-        self.draw(surface);
+        self.draw(queue, surface);
     }
 
     fn frame(
         &mut self,
         _connection: &Connection,
-        _queue: &QueueHandle<Self>,
+        queue: &QueueHandle<Self>,
         surface: &WlSurface,
         _time: u32,
     ) {
-        self.draw(surface);
+        self.draw(queue, surface);
     }
 }
 
@@ -294,18 +299,22 @@ impl LayerHandler for State {
     fn configure(
         &mut self,
         _conn: &Connection,
-        _qh: &QueueHandle<Self>,
+        queue: &QueueHandle<Self>,
         layer: &LayerSurface,
         configure: LayerSurfaceConfigure,
         _serial: u32,
     ) {
         let surface = layer.wl_surface();
         if self.panel().owns_surface(surface) {
-            self.panel().reconfigure(configure);
+            self.panel.as_mut().unwrap().reconfigure(
+                &self.protocol_states.compositor,
+                queue,
+                configure,
+            );
         } else if self.drawer().owns_surface(surface) {
             self.drawer().reconfigure(configure);
         }
-        self.draw(surface);
+        self.draw(queue, surface);
     }
 }
 
