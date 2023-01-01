@@ -13,6 +13,7 @@ use smithay::egl_platform;
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState};
 use smithay_client_toolkit::event_loop::WaylandSource;
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
+use smithay_client_toolkit::reexports::client::globals::{self, GlobalList};
 use smithay_client_toolkit::reexports::client::protocol::wl_display::WlDisplay;
 use smithay_client_toolkit::reexports::client::protocol::wl_output::WlOutput;
 use smithay_client_toolkit::reexports::client::protocol::wl_seat::WlSeat;
@@ -23,7 +24,7 @@ use smithay_client_toolkit::registry::{ProvidesRegistryState, RegistryState};
 use smithay_client_toolkit::seat::touch::TouchHandler;
 use smithay_client_toolkit::seat::{Capability, SeatHandler, SeatState};
 use smithay_client_toolkit::shell::layer::{
-    LayerHandler, LayerState, LayerSurface, LayerSurfaceConfigure,
+    LayerShell, LayerShellHandler, LayerSurface, LayerSurfaceConfigure,
 };
 use smithay_client_toolkit::{
     delegate_compositor, delegate_layer, delegate_output, delegate_registry, delegate_seat,
@@ -81,16 +82,17 @@ fn main() {
             process::exit(1);
         },
     };
-    let mut queue = connection.new_event_queue();
+    let (globals, mut queue) =
+        globals::registry_queue_init(&connection).expect("initialize registry queue");
 
-    // Setup calloop event loop.
-    let mut event_loop = EventLoop::try_new().expect("event loop creation");
+    // Initialize calloop event loop.
+    let mut event_loop = EventLoop::try_new().expect("initialize event loop");
 
     // Setup shared state.
-    let mut state =
-        State::new(&mut connection, &mut queue, event_loop.handle()).expect("state setup");
+    let mut state = State::new(&mut connection, &globals, &mut queue, event_loop.handle())
+        .expect("state setup");
 
-    // Insert wayland into calloop loop.
+    // Insert wayland source into calloop loop.
     let wayland_source = WaylandSource::new(queue).expect("wayland source creation");
     wayland_source.insert(event_loop.handle()).expect("wayland source registration");
 
@@ -121,12 +123,13 @@ pub struct State {
 impl State {
     fn new(
         connection: &mut Connection,
+        globals: &GlobalList,
         queue: &mut EventQueue<Self>,
         event_loop: LoopHandle<'static, Self>,
     ) -> Result<Self> {
         // Setup globals.
         let queue_handle = queue.handle();
-        let protocol_states = ProtocolStates::new(connection, &queue_handle);
+        let protocol_states = ProtocolStates::new(globals, &queue_handle);
 
         // Initialize panel modules.
         let modules = Modules::new(&event_loop)?;
@@ -148,10 +151,6 @@ impl State {
             touch: Default::default(),
             panel: Default::default(),
         };
-
-        // Roundtrip to initialize globals.
-        queue.blocking_dispatch(&mut state)?;
-        queue.blocking_dispatch(&mut state)?;
 
         state.init_windows(connection, queue)?;
 
@@ -185,7 +184,7 @@ impl State {
     }
 
     /// Draw window associated with the surface.
-    fn draw(&mut self, queue: &QueueHandle<Self>, surface: &WlSurface) {
+    fn draw(&mut self, surface: &WlSurface) {
         if self.panel().owns_surface(surface) {
             if let Err(error) = self.panel.as_mut().unwrap().draw(&self.modules.as_slice()) {
                 eprintln!("Panel rendering failed: {error:?}");
@@ -194,7 +193,6 @@ impl State {
             let drawer = self.drawer.as_mut().unwrap();
             if let Err(error) = drawer.draw(
                 &self.protocol_states.compositor,
-                queue,
                 &mut self.modules.as_slice_mut(),
                 self.drawer_offset,
             ) {
@@ -219,7 +217,7 @@ impl State {
 }
 
 impl ProvidesRegistryState for State {
-    registry_handlers![CompositorState, OutputState, LayerState, SeatState];
+    registry_handlers![OutputState, SeatState];
 
     fn registry(&mut self) -> &mut RegistryState {
         &mut self.protocol_states.registry
@@ -227,14 +225,10 @@ impl ProvidesRegistryState for State {
 }
 
 impl CompositorHandler for State {
-    fn compositor_state(&mut self) -> &mut CompositorState {
-        &mut self.protocol_states.compositor
-    }
-
     fn scale_factor_changed(
         &mut self,
         _connection: &Connection,
-        queue: &QueueHandle<Self>,
+        _queue: &QueueHandle<Self>,
         surface: &WlSurface,
         factor: i32,
     ) {
@@ -243,17 +237,17 @@ impl CompositorHandler for State {
         } else if self.drawer().owns_surface(surface) {
             self.drawer().set_scale_factor(factor);
         }
-        self.draw(queue, surface);
+        self.draw(surface);
     }
 
     fn frame(
         &mut self,
         _connection: &Connection,
-        queue: &QueueHandle<Self>,
+        _queue: &QueueHandle<Self>,
         surface: &WlSurface,
         _time: u32,
     ) {
-        self.draw(queue, surface);
+        self.draw(surface);
     }
 }
 
@@ -287,11 +281,7 @@ impl OutputHandler for State {
     }
 }
 
-impl LayerHandler for State {
-    fn layer_state(&mut self) -> &mut LayerState {
-        &mut self.protocol_states.layer
-    }
-
+impl LayerShellHandler for State {
     fn closed(&mut self, _conn: &Connection, _qh: &QueueHandle<Self>, _layer: &LayerSurface) {
         self.terminated = true;
     }
@@ -299,22 +289,18 @@ impl LayerHandler for State {
     fn configure(
         &mut self,
         _conn: &Connection,
-        queue: &QueueHandle<Self>,
+        _queue: &QueueHandle<Self>,
         layer: &LayerSurface,
         configure: LayerSurfaceConfigure,
         _serial: u32,
     ) {
         let surface = layer.wl_surface();
         if self.panel().owns_surface(surface) {
-            self.panel.as_mut().unwrap().reconfigure(
-                &self.protocol_states.compositor,
-                queue,
-                configure,
-            );
+            self.panel.as_mut().unwrap().reconfigure(&self.protocol_states.compositor, configure);
         } else if self.drawer().owns_surface(surface) {
             self.drawer().reconfigure(configure);
         }
-        self.draw(queue, surface);
+        self.draw(surface);
     }
 }
 
@@ -486,18 +472,18 @@ struct ProtocolStates {
     compositor: CompositorState,
     registry: RegistryState,
     output: OutputState,
-    layer: LayerState,
+    layer: LayerShell,
     seat: SeatState,
 }
 
 impl ProtocolStates {
-    fn new(connection: &Connection, queue: &QueueHandle<State>) -> Self {
+    fn new(globals: &GlobalList, queue: &QueueHandle<State>) -> Self {
         Self {
-            registry: RegistryState::new(connection, queue),
-            compositor: CompositorState::new(),
-            output: OutputState::new(),
-            layer: LayerState::new(),
-            seat: SeatState::new(),
+            registry: RegistryState::new(globals),
+            compositor: CompositorState::bind(globals, queue).expect("missing wl_compositor"),
+            layer: LayerShell::bind(globals, queue).expect("missing wlr_layer_shell"),
+            output: OutputState::new(globals, queue),
+            seat: SeatState::new(globals, queue),
         }
     }
 }

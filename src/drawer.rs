@@ -2,11 +2,11 @@
 
 use smithay::backend::egl::display::EGLDisplay;
 use smithay::backend::egl::{EGLContext, EGLSurface};
-use smithay_client_toolkit::compositor::CompositorState;
+use smithay_client_toolkit::compositor::{CompositorState, Region};
 use smithay_client_toolkit::reexports::client::protocol::wl_surface::WlSurface;
 use smithay_client_toolkit::reexports::client::{Connection, Proxy, QueueHandle};
 use smithay_client_toolkit::shell::layer::{
-    Anchor, Layer, LayerState, LayerSurface, LayerSurfaceConfigure,
+    Anchor, Layer, LayerShell, LayerSurface, LayerSurfaceConfigure,
 };
 use wayland_egl::WlEglSurface;
 
@@ -60,7 +60,7 @@ impl Drawer {
 
         // Initialize EGL context.
         let native_display = NativeDisplay::new(connection.display());
-        let display = EGLDisplay::new(&native_display, None)?;
+        let display = EGLDisplay::new(native_display, None)?;
         let egl_context =
             EGLContext::new_with_config(&display, GL_ATTRIBUTES, Default::default(), None)?;
 
@@ -82,14 +82,14 @@ impl Drawer {
     }
 
     /// Create the window.
-    pub fn show(&mut self, compositor: &CompositorState, layer: &mut LayerState) -> Result<()> {
+    pub fn show(&mut self, compositor: &CompositorState, layer: &mut LayerShell) -> Result<()> {
         // Ensure the window is not mapped yet.
         if self.window.is_some() {
             return Ok(());
         }
 
         // Create the Wayland surface.
-        let surface = compositor.create_surface(&self.queue)?;
+        let surface = compositor.create_surface(&self.queue);
 
         // Create the EGL surface.
         let config = self.renderer.egl_context().config_id();
@@ -127,7 +127,6 @@ impl Drawer {
     pub fn draw(
         &mut self,
         compositor: &CompositorState,
-        queue: &QueueHandle<State>,
         modules: &mut [&mut dyn Module],
         mut offset: f64,
     ) -> Result<()> {
@@ -135,12 +134,12 @@ impl Drawer {
         self.frame_pending = false;
 
         // Update opaque region.
-        let region = compositor.create_region(queue).ok();
+        let region = Region::new(compositor).ok();
         if let Some((window, region)) = self.window.as_ref().zip(region) {
             let logical_width = self.size.width / self.scale_factor;
             let logical_height = offset as i32 / self.scale_factor;
             region.add(0, PANEL_HEIGHT, logical_width, logical_height);
-            window.wl_surface().set_opaque_region(Some(&region))
+            window.wl_surface().set_opaque_region(Some(region.wl_region()));
         }
 
         self.renderer.draw(|renderer| unsafe {
@@ -211,7 +210,7 @@ impl Drawer {
         self.frame_pending = true;
 
         let surface = window.wl_surface();
-        surface.frame(&self.queue, surface.clone()).expect("scheduled frame request");
+        surface.frame(&self.queue, surface.clone());
         surface.commit();
     }
 

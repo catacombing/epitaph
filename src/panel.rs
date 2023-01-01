@@ -3,11 +3,11 @@
 use crossfont::Metrics;
 use smithay::backend::egl::display::EGLDisplay;
 use smithay::backend::egl::{EGLContext, EGLSurface};
-use smithay_client_toolkit::compositor::CompositorState;
+use smithay_client_toolkit::compositor::{CompositorState, Region};
 use smithay_client_toolkit::reexports::client::protocol::wl_surface::WlSurface;
 use smithay_client_toolkit::reexports::client::{Connection, Proxy, QueueHandle};
 use smithay_client_toolkit::shell::layer::{
-    Anchor, Layer, LayerState, LayerSurface, LayerSurfaceConfigure,
+    Anchor, Layer, LayerShell, LayerSurface, LayerSurfaceConfigure,
 };
 use wayland_egl::WlEglSurface;
 
@@ -43,19 +43,19 @@ impl Panel {
         connection: &mut Connection,
         compositor: &CompositorState,
         queue: QueueHandle<State>,
-        layer: &mut LayerState,
+        layer: &mut LayerShell,
     ) -> Result<Self> {
         // Default to 1x1 initial size since 0x0 EGL surfaces are illegal.
         let size = Size { width: 1, height: 1 };
 
         // Initialize EGL context.
         let native_display = NativeDisplay::new(connection.display());
-        let display = EGLDisplay::new(&native_display, None)?;
+        let display = EGLDisplay::new(native_display, None)?;
         let egl_context =
             EGLContext::new_with_config(&display, GL_ATTRIBUTES, Default::default(), None)?;
 
         // Create the Wayland surface.
-        let surface = compositor.create_surface(&queue)?;
+        let surface = compositor.create_surface(&queue);
 
         // Create the EGL surface.
         let config = egl_context.config_id();
@@ -126,21 +126,16 @@ impl Panel {
     }
 
     /// Reconfigure the window.
-    pub fn reconfigure(
-        &mut self,
-        compositor: &CompositorState,
-        queue: &QueueHandle<State>,
-        configure: LayerSurfaceConfigure,
-    ) {
+    pub fn reconfigure(&mut self, compositor: &CompositorState, configure: LayerSurfaceConfigure) {
         // Update size.
         let new_width = configure.new_size.0 as i32;
         let size = Size::new(new_width, PANEL_HEIGHT) * self.scale_factor as f64;
         self.resize(size);
 
         // Set opaque region.
-        if let Ok(region) = compositor.create_region(queue) {
+        if let Ok(region) = Region::new(compositor) {
             region.add(0, 0, new_width, PANEL_HEIGHT);
-            self.window.wl_surface().set_opaque_region(Some(&region))
+            self.window.wl_surface().set_opaque_region(Some(region.wl_region()));
         }
     }
 
@@ -152,7 +147,7 @@ impl Panel {
         self.frame_pending = true;
 
         let surface = self.window.wl_surface();
-        surface.frame(&self.queue, surface.clone()).expect("scheduled frame request");
+        surface.frame(&self.queue, surface.clone());
         surface.commit();
     }
 
