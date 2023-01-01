@@ -139,7 +139,7 @@ impl Drawer {
         if let Some((window, region)) = self.window.as_ref().zip(region) {
             let logical_width = self.size.width / self.scale_factor;
             let logical_height = offset as i32 / self.scale_factor;
-            region.add(0, 0, logical_width, logical_height);
+            region.add(0, PANEL_HEIGHT, logical_width, logical_height);
             window.wl_surface().set_opaque_region(Some(&region))
         }
 
