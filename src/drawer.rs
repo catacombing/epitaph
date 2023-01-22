@@ -1,21 +1,26 @@
 //! Drawer window state.
+use std::num::NonZeroU32;
 
-use smithay::backend::egl::display::EGLDisplay;
-use smithay::backend::egl::{EGLContext, EGLSurface};
+use glutin::api::egl::config::Config;
+use glutin::config::GetGlConfig;
+use glutin::context::{ContextApi, ContextAttributesBuilder, Version};
+use glutin::display::GetGlDisplay;
+use glutin::prelude::*;
+use glutin::surface::{SurfaceAttributesBuilder, WindowSurface};
+use raw_window_handle::{RawWindowHandle, WaylandWindowHandle};
 use smithay_client_toolkit::compositor::{CompositorState, Region};
 use smithay_client_toolkit::reexports::client::protocol::wl_surface::WlSurface;
-use smithay_client_toolkit::reexports::client::{Connection, Proxy, QueueHandle};
+use smithay_client_toolkit::reexports::client::{Proxy, QueueHandle};
 use smithay_client_toolkit::shell::layer::{
     Anchor, Layer, LayerShell, LayerSurface, LayerSurfaceConfigure,
 };
-use wayland_egl::WlEglSurface;
 
 use crate::module::{DrawerModule, Module, Slider, Toggle};
 use crate::panel::PANEL_HEIGHT;
 use crate::renderer::{RectRenderer, Renderer, TextRenderer};
 use crate::text::GlRasterizer;
 use crate::vertex::{RectVertex, VertexBatcher};
-use crate::{gl, NativeDisplay, Result, Size, State, GL_ATTRIBUTES};
+use crate::{gl, Result, Size, State};
 
 /// Slider module height.
 ///
@@ -46,7 +51,6 @@ pub struct Drawer {
     touch_module: Option<usize>,
     touch_position: (f64, f64),
     touch_id: Option<i32>,
-    display: EGLDisplay,
     frame_pending: bool,
     renderer: Renderer,
     scale_factor: i32,
@@ -54,22 +58,22 @@ pub struct Drawer {
 }
 
 impl Drawer {
-    pub fn new(connection: &mut Connection, queue: QueueHandle<State>) -> Result<Self> {
+    pub fn new(queue: QueueHandle<State>, egl_config: &Config) -> Result<Self> {
         // Default to 1x1 initial size since 0x0 EGL surfaces are illegal.
         let size = Size { width: 1, height: 1 };
 
-        // Initialize EGL context.
-        let native_display = NativeDisplay::new(connection.display());
-        let display = EGLDisplay::new(native_display, None)?;
+        let context_attribules = ContextAttributesBuilder::new()
+            .with_context_api(ContextApi::Gles(Some(Version::new(2, 0))))
+            .build(None);
+
         let egl_context =
-            EGLContext::new_with_config(&display, GL_ATTRIBUTES, Default::default(), None)?;
+            unsafe { egl_config.display().create_context(egl_config, &context_attribules)? };
 
         // Initialize the renderer.
         let renderer = Renderer::new(egl_context, 1)?;
 
         Ok(Self {
             renderer,
-            display,
             queue,
             size,
             scale_factor: 1,
@@ -91,16 +95,20 @@ impl Drawer {
         // Create the Wayland surface.
         let surface = compositor.create_surface(&self.queue);
 
+        let mut wayland_window_handle = WaylandWindowHandle::empty();
+        wayland_window_handle.surface = surface.id().as_ptr() as *mut _;
+        let raw_window_handle = RawWindowHandle::Wayland(wayland_window_handle);
+
         // Create the EGL surface.
-        let config = self.renderer.egl_context().config_id();
-        let native_surface = WlEglSurface::new(surface.id(), self.size.width, self.size.height)?;
-        let pixel_format = self
-            .renderer
-            .egl_context()
-            .pixel_format()
-            .ok_or_else(|| String::from("no pixel format"))?;
+        let config = self.renderer.egl_context().config();
+        let surface_attributes = SurfaceAttributesBuilder::<WindowSurface>::new().build(
+            raw_window_handle,
+            NonZeroU32::new(self.size.width as u32).unwrap(),
+            NonZeroU32::new(self.size.height as u32).unwrap(),
+        );
+
         let egl_surface =
-            EGLSurface::new(&self.display, pixel_format, config, native_surface, None)?;
+            unsafe { config.display().create_window_surface(&config, &surface_attributes)? };
 
         // Create the window.
         self.window = Some(

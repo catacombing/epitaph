@@ -1,21 +1,25 @@
 //! Panel window state.
+use std::num::NonZeroU32;
 
 use crossfont::Metrics;
-use smithay::backend::egl::display::EGLDisplay;
-use smithay::backend::egl::{EGLContext, EGLSurface};
+use glutin::api::egl::config::Config;
+use glutin::context::{ContextApi, ContextAttributesBuilder, Version};
+use glutin::display::GetGlDisplay;
+use glutin::prelude::*;
+use glutin::surface::{SurfaceAttributesBuilder, WindowSurface};
+use raw_window_handle::{RawWindowHandle, WaylandWindowHandle};
 use smithay_client_toolkit::compositor::{CompositorState, Region};
 use smithay_client_toolkit::reexports::client::protocol::wl_surface::WlSurface;
-use smithay_client_toolkit::reexports::client::{Connection, Proxy, QueueHandle};
+use smithay_client_toolkit::reexports::client::{Proxy, QueueHandle};
 use smithay_client_toolkit::shell::layer::{
     Anchor, Layer, LayerShell, LayerSurface, LayerSurfaceConfigure,
 };
-use wayland_egl::WlEglSurface;
 
 use crate::module::{Alignment, Module, PanelModuleContent};
 use crate::renderer::{Renderer, TextRenderer};
 use crate::text::{GlRasterizer, Svg};
 use crate::vertex::VertexBatcher;
-use crate::{gl, NativeDisplay, Result, Size, State, GL_ATTRIBUTES};
+use crate::{gl, Result, Size, State};
 
 /// Panel height in pixels with a scale factor of 1.
 pub const PANEL_HEIGHT: i32 = 20;
@@ -40,29 +44,39 @@ pub struct Panel {
 
 impl Panel {
     pub fn new(
-        connection: &mut Connection,
         compositor: &CompositorState,
         queue: QueueHandle<State>,
         layer: &mut LayerShell,
+        egl_config: &Config,
     ) -> Result<Self> {
         // Default to 1x1 initial size since 0x0 EGL surfaces are illegal.
         let size = Size { width: 1, height: 1 };
 
         // Initialize EGL context.
-        let native_display = NativeDisplay::new(connection.display());
-        let display = EGLDisplay::new(native_display, None)?;
-        let egl_context =
-            EGLContext::new_with_config(&display, GL_ATTRIBUTES, Default::default(), None)?;
+        let context_attribules = ContextAttributesBuilder::new()
+            .with_context_api(ContextApi::Gles(Some(Version::new(2, 0))))
+            .build(None);
+
+        let egl_display = egl_config.display();
+        let egl_context = unsafe { egl_display.create_context(egl_config, &context_attribules)? };
 
         // Create the Wayland surface.
         let surface = compositor.create_surface(&queue);
 
+        let mut wayland_window_handle = WaylandWindowHandle::empty();
+        wayland_window_handle.surface = surface.id().as_ptr() as *mut _;
+        let raw_window_handle = RawWindowHandle::Wayland(wayland_window_handle);
+
         // Create the EGL surface.
-        let config = egl_context.config_id();
-        let native_surface = WlEglSurface::new(surface.id(), size.width, size.height)?;
-        let pixel_format =
-            egl_context.pixel_format().ok_or_else(|| String::from("no pixel format"))?;
-        let egl_surface = EGLSurface::new(&display, pixel_format, config, native_surface, None)?;
+        let surface_attributes = SurfaceAttributesBuilder::<WindowSurface>::new().build(
+            raw_window_handle,
+            NonZeroU32::new(size.width as u32).unwrap(),
+            NonZeroU32::new(size.height as u32).unwrap(),
+        );
+
+        // Create the EGL surface.
+        let egl_surface =
+            unsafe { egl_config.display().create_window_surface(egl_config, &surface_attributes)? };
 
         // Create the window.
         let window = LayerSurface::builder()
