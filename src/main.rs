@@ -173,7 +173,7 @@ impl State {
             .build();
 
         let egl_config = unsafe {
-            gl_display.find_configs(template)?.next().except("no suitable EGL configs were found.")
+            gl_display.find_configs(template)?.next().except("no suitable EGL configs were found")
         };
 
         // Load the OpenGL symbols.
