@@ -172,7 +172,9 @@ impl State {
             .with_depth_size(0)
             .build();
 
-        let egl_config = unsafe { gl_display.find_configs(template)?.next().unwrap() };
+        let egl_config = unsafe {
+            gl_display.find_configs(template)?.next().except("no suitable EGL configs were found.")
+        };
 
         // Load the OpenGL symbols.
         gl::load_with(|symbol| {
