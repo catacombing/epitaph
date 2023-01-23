@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::ffi::CString;
 use std::ops::Mul;
 use std::process;
 use std::result::Result as StdResult;
@@ -6,15 +7,14 @@ use std::time::{Duration, Instant};
 
 use calloop::timer::{TimeoutAction, Timer};
 use calloop::{EventLoop, LoopHandle};
-use smithay::backend::egl::context::GlAttributes;
-use smithay::backend::egl::native::{EGLNativeDisplay, EGLPlatform};
-use smithay::backend::egl::{self, ffi as egl_ffi, ffi};
-use smithay::egl_platform;
+use glutin::api::egl::display::Display;
+use glutin::config::ConfigTemplateBuilder;
+use glutin::prelude::*;
+use raw_window_handle::{RawDisplayHandle, WaylandDisplayHandle};
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState};
 use smithay_client_toolkit::event_loop::WaylandSource;
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
 use smithay_client_toolkit::reexports::client::globals::{self, GlobalList};
-use smithay_client_toolkit::reexports::client::protocol::wl_display::WlDisplay;
 use smithay_client_toolkit::reexports::client::protocol::wl_output::WlOutput;
 use smithay_client_toolkit::reexports::client::protocol::wl_seat::WlSeat;
 use smithay_client_toolkit::reexports::client::protocol::wl_surface::WlSurface;
@@ -55,10 +55,6 @@ mod gl {
     #![allow(clippy::all)]
     include!(concat!(env!("OUT_DIR"), "/gl_bindings.rs"));
 }
-
-/// Attributes for OpenGL context creation.
-pub const GL_ATTRIBUTES: GlAttributes =
-    GlAttributes { version: (2, 0), profile: None, debug: false, vsync: false };
 
 /// Time between drawer animation updates.
 const ANIMATION_INTERVAL: Duration = Duration::from_millis(1000 / 120);
@@ -163,22 +159,39 @@ impl State {
         connection: &mut Connection,
         queue: &EventQueue<Self>,
     ) -> Result<()> {
-        // Setup OpenGL symbol loader.
-        unsafe {
-            egl_ffi::make_sure_egl_is_loaded()?;
-            gl::load_with(|symbol| egl::get_proc_address(symbol));
-        }
+        let mut wayland_display = WaylandDisplayHandle::empty();
+        wayland_display.display = connection.display().id().as_ptr() as *mut _;
+        let raw_display_handle = RawDisplayHandle::Wayland(wayland_display);
+
+        // Setup the OpenGL window.
+        let gl_display = unsafe { Display::new(raw_display_handle)? };
+
+        let template = ConfigTemplateBuilder::new()
+            .with_alpha_size(8)
+            .with_stencil_size(0)
+            .with_depth_size(0)
+            .build();
+
+        let egl_config = unsafe {
+            gl_display.find_configs(template)?.next().expect("no suitable EGL configs were found")
+        };
+
+        // Load the OpenGL symbols.
+        gl::load_with(|symbol| {
+            let symbol = CString::new(symbol).unwrap();
+            gl_display.get_proc_address(symbol.as_c_str()).cast()
+        });
 
         // Setup panel window.
         self.panel = Some(Panel::new(
-            connection,
             &self.protocol_states.compositor,
             queue.handle(),
             &mut self.protocol_states.layer,
+            &egl_config,
         )?);
 
         // Setup drawer window.
-        self.drawer = Some(Drawer::new(connection, queue.handle())?);
+        self.drawer = Some(Drawer::new(queue.handle(), &egl_config)?);
 
         Ok(())
     }
@@ -564,26 +577,6 @@ impl Mul<f64> for Size {
         self.width = (self.width as f64 * factor) as i32;
         self.height = (self.height as f64 * factor) as i32;
         self
-    }
-}
-
-struct NativeDisplay {
-    display: WlDisplay,
-}
-
-impl NativeDisplay {
-    fn new(display: WlDisplay) -> Self {
-        Self { display }
-    }
-}
-
-impl EGLNativeDisplay for NativeDisplay {
-    fn supported_platforms(&self) -> Vec<EGLPlatform<'_>> {
-        let display = self.display.id().as_ptr();
-        vec![
-            egl_platform!(PLATFORM_WAYLAND_KHR, display, &["EGL_KHR_platform_wayland"]),
-            egl_platform!(PLATFORM_WAYLAND_EXT, display, &["EGL_EXT_platform_wayland"]),
-        ]
     }
 }
 
