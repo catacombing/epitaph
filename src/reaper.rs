@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::io;
+use std::io::{self, Read};
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, Output, Stdio};
 
@@ -23,9 +23,20 @@ impl Reaper {
     pub fn new(event_loop: &LoopHandle<'static, State>) -> Result<Self> {
         // Register calloop SIGCHLD handler.
         let signals = Signals::new(&[Signal::SIGCHLD]).unwrap();
-        event_loop.insert_source(signals, |signal, _, state| {
-            if let Ok((callback, output)) = state.reaper.kill(signal.full_info().ssi_pid) {
-                callback(state, output);
+        event_loop.insert_source(signals, |_, _, state| {
+            // Find all dead children.
+            let mut zombies = Vec::new();
+            for (pid, (child, _)) in &mut state.reaper.processes {
+                if let Some(output) = Self::try_reap(child) {
+                    zombies.push((*pid, output));
+                }
+            }
+
+            // Remove dead children and call their callbacks.
+            for (pid, output) in zombies.drain(..) {
+                if let Some((_, callback)) = state.reaper.processes.remove(&pid) {
+                    callback(state, output);
+                }
             }
         })?;
 
@@ -52,20 +63,27 @@ impl Reaper {
         self.processes.insert(pid, (child, callback));
     }
 
-    /// Kill a kid.
-    pub fn kill(&mut self, pid: u32) -> Result<(Callback, Output)> {
-        let (mut child, callback) = match self.processes.remove(&pid) {
-            Some(process) => process,
-            None => return Err(format!("{pid}: PID not supervised by reaper").into()),
+    /// Try and reap a child.
+    pub fn try_reap(child: &mut Child) -> Option<Output> {
+        let status = match child.try_wait() {
+            Ok(Some(status)) => status,
+            // Skip reaping if child is not dead.
+            Ok(None) | Err(_) => return None,
         };
 
-        // Ensure child is dead.
-        let _ = child.kill();
+        // Read STDOUT to buffer.
+        let mut stdout = Vec::new();
+        if let Some(mut child_stdout) = child.stdout.take() {
+            let _ = child_stdout.read_to_end(&mut stdout);
+        }
 
-        // Wait for child completion.
-        let output = child.wait_with_output()?;
+        // Read STDERR to buffer.
+        let mut stderr = Vec::new();
+        if let Some(mut child_stderr) = child.stderr.take() {
+            let _ = child_stderr.read_to_end(&mut stderr);
+        }
 
-        Ok((callback, output))
+        Some(Output { status, stdout, stderr })
     }
 }
 
