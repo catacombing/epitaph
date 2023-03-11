@@ -139,14 +139,16 @@ impl Drawer {
         mut offset: f64,
     ) -> Result<()> {
         offset = (offset * self.scale_factor as f64).min(self.size.height as f64);
+        let y_offset = (offset - self.size.height as f64) as i32;
         self.frame_pending = false;
 
         // Update opaque region.
         let region = Region::new(compositor).ok();
         if let Some((window, region)) = self.window.as_ref().zip(region) {
-            let logical_width = self.size.width / self.scale_factor;
-            let logical_height = offset as i32 / self.scale_factor;
-            region.add(0, PANEL_HEIGHT, logical_width, logical_height);
+            let y = (y_offset / self.scale_factor + PANEL_HEIGHT).max(0);
+            let width = self.size.width / self.scale_factor;
+            let height = offset as i32 / self.scale_factor - y;
+            region.add(0, y, width, height);
             window.wl_surface().set_opaque_region(Some(region.wl_region()));
         }
 
@@ -159,10 +161,9 @@ impl Drawer {
 
             // Setup drawer to render at correct offset.
             let drawer_height = self.size.height - PANEL_HEIGHT * renderer.scale_factor;
-            let y_offset = (self.size.height as f64 - offset) as i32;
             gl::Enable(gl::SCISSOR_TEST);
-            gl::Scissor(0, y_offset, self.size.width, drawer_height);
-            gl::Viewport(0, y_offset, self.size.width, self.size.height);
+            gl::Scissor(0, -y_offset, self.size.width, drawer_height);
+            gl::Viewport(0, -y_offset, self.size.width, self.size.height);
 
             // Draw background for the offset viewport.
             gl::ClearColor(0.1, 0.1, 0.1, 1.0);
