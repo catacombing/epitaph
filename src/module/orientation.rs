@@ -27,7 +27,7 @@ impl Toggle for Orientation {
         self.locked = !self.locked;
 
         let msg = IpcMessage::Orientation { lock: None, unlock: !self.locked };
-        catacomb_ipc::send_message(msg)?;
+        catacomb_ipc::send_message(&msg)?;
 
         Ok(())
     }

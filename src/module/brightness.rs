@@ -17,7 +17,7 @@ impl Brightness {
         Ok(Self { brightness: Self::get_brightness()? })
     }
 
-    /// Set device backlight brightness.
+    /// Get device backlight brightness.
     fn get_brightness() -> Result<f64> {
         // Get all backlight devices.
         let mut enumerator = Enumerator::new()?;
@@ -52,9 +52,6 @@ impl Module for Brightness {
 impl Slider for Brightness {
     /// Set device backlight brightness.
     fn set_value(&mut self, value: f64) -> Result<()> {
-        // Limit brightness slider to `0..=1`.
-        let brightness = value.clamp(0., 1.);
-
         // Get all backlight devices.
         let mut enumerator = Enumerator::new()?;
         enumerator.match_subsystem("backlight")?;
@@ -70,14 +67,14 @@ impl Slider for Brightness {
             };
 
             // Calculate target brightness integer value.
-            let brightness = ((max_brightness as f64 * brightness) as u32).max(1);
+            let brightness = ((max_brightness as f64 * value) as u32).max(1);
 
             // Update screen brightness.
             let _ = device.set_attribute_value("brightness", brightness.to_string());
         }
 
         // Update internal brightness value.
-        self.brightness = brightness;
+        self.brightness = value;
 
         Ok(())
     }

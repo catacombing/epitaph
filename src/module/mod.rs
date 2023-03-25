@@ -9,6 +9,7 @@ pub mod cellular;
 pub mod clock;
 pub mod flashlight;
 pub mod orientation;
+pub mod scale;
 pub mod wifi;
 
 /// Panel module.
@@ -56,6 +57,14 @@ pub enum DrawerModule<'a> {
 pub trait Slider {
     /// Handle slider updates.
     fn set_value(&mut self, value: f64) -> Result<()>;
+
+    /// Handle touch release.
+    ///
+    /// This can be used to debounce slider updates until the user is done
+    /// inputting the desired value.
+    fn on_touch_up(&mut self) -> Result<()> {
+        Ok(())
+    }
 
     /// Get current slider value.
     fn get_value(&self) -> f64;

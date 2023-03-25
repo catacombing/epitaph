@@ -11,9 +11,10 @@ use raw_window_handle::{RawWindowHandle, WaylandWindowHandle};
 use smithay_client_toolkit::compositor::{CompositorState, Region};
 use smithay_client_toolkit::reexports::client::protocol::wl_surface::WlSurface;
 use smithay_client_toolkit::reexports::client::{Proxy, QueueHandle};
-use smithay_client_toolkit::shell::layer::{
+use smithay_client_toolkit::shell::wlr_layer::{
     Anchor, Layer, LayerShell, LayerSurface, LayerSurfaceConfigure,
 };
+use smithay_client_toolkit::shell::WaylandSurface;
 
 use crate::module::{DrawerModule, Module, Slider, Toggle};
 use crate::panel::PANEL_HEIGHT;
@@ -46,6 +47,9 @@ const MODULE_SIZE: u32 = 64;
 const ICON_HEIGHT: u32 = 32;
 
 pub struct Drawer {
+    /// Current drawer Y-offset.
+    pub offset: f64,
+
     window: Option<LayerSurface>,
     queue: QueueHandle<State>,
     touch_module: Option<usize>,
@@ -81,6 +85,7 @@ impl Drawer {
             touch_position: Default::default(),
             touch_module: Default::default(),
             touch_id: Default::default(),
+            offset: Default::default(),
             window: Default::default(),
         })
     }
@@ -110,15 +115,11 @@ impl Drawer {
         let egl_surface =
             unsafe { config.display().create_window_surface(&config, &surface_attributes)? };
 
-        // Create the window.
-        self.window = Some(
-            LayerSurface::builder()
-                .anchor(Anchor::LEFT | Anchor::TOP | Anchor::RIGHT | Anchor::BOTTOM)
-                .exclusive_zone(-1)
-                .size((0, 0))
-                .namespace("panel")
-                .map(&self.queue, layer, surface, Layer::Overlay)?,
-        );
+        // Setup layer shell surface.
+        let window =
+            layer.create_layer_surface(&self.queue, surface, Layer::Overlay, Some("panel"), None);
+        window.set_anchor(Anchor::LEFT | Anchor::TOP | Anchor::RIGHT | Anchor::BOTTOM);
+        self.window = Some(window);
 
         self.renderer.set_surface(Some(egl_surface));
 
@@ -136,9 +137,8 @@ impl Drawer {
         &mut self,
         compositor: &CompositorState,
         modules: &mut [&mut dyn Module],
-        mut offset: f64,
     ) -> Result<()> {
-        offset = (offset * self.scale_factor as f64).min(self.size.height as f64);
+        let offset = (self.offset * self.scale_factor as f64).min(self.size.height as f64);
         let y_offset = (offset - self.size.height as f64) as i32;
         self.frame_pending = false;
 
@@ -244,7 +244,7 @@ impl Drawer {
         // Update sliders.
         let requires_redraw = match modules[index].drawer_module() {
             Some(DrawerModule::Slider(slider)) => {
-                let _ = slider.set_value(x);
+                let _ = slider.set_value(x.clamp(0., 1.));
                 true
             },
             _ => false,
@@ -272,7 +272,7 @@ impl Drawer {
                 let relative_x = self.touch_position.0 - positioner.edge_padding as f64;
                 let fractional_x = relative_x / positioner.slider_size.width as f64;
 
-                let _ = slider.set_value(fractional_x);
+                let _ = slider.set_value(fractional_x.clamp(0., 1.));
 
                 true
             },
@@ -288,14 +288,16 @@ impl Drawer {
 
         // Handle button toggles on touch up.
         let mut dirty = false;
-        let positioner = ModulePositioner::new(self.size.into(), self.scale_factor as i16);
-        if let Some(DrawerModule::Toggle(toggle)) = positioner
-            .module_position(modules, self.touch_position)
-            .filter(|(index, ..)| Some(*index) == self.touch_module)
-            .and_then(|(index, ..)| modules[index].drawer_module())
-        {
-            let _ = toggle.toggle();
-            dirty = true;
+        match self.touch_module.and_then(|module| modules[module].drawer_module()) {
+            Some(DrawerModule::Toggle(toggle)) => {
+                let _ = toggle.toggle();
+                dirty = true;
+            },
+            Some(DrawerModule::Slider(slider)) => {
+                let _ = slider.on_touch_up();
+                dirty = true;
+            },
+            _ => (),
         }
 
         // Reset touch state.
@@ -316,6 +318,11 @@ impl Drawer {
 
         let scale_factor = self.scale_factor;
         let _ = self.renderer.resize(size, scale_factor);
+
+        // Ensure drawer stays fully open after resize.
+        if self.offset > 0. {
+            self.offset = self.max_offset();
+        }
     }
 }
 

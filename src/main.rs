@@ -12,20 +12,22 @@ use glutin::config::ConfigTemplateBuilder;
 use glutin::prelude::*;
 use raw_window_handle::{RawDisplayHandle, WaylandDisplayHandle};
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState};
-use smithay_client_toolkit::event_loop::WaylandSource;
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
 use smithay_client_toolkit::reexports::client::globals::{self, GlobalList};
 use smithay_client_toolkit::reexports::client::protocol::wl_output::WlOutput;
 use smithay_client_toolkit::reexports::client::protocol::wl_seat::WlSeat;
 use smithay_client_toolkit::reexports::client::protocol::wl_surface::WlSurface;
 use smithay_client_toolkit::reexports::client::protocol::wl_touch::WlTouch;
-use smithay_client_toolkit::reexports::client::{Connection, EventQueue, Proxy, QueueHandle};
+use smithay_client_toolkit::reexports::client::{
+    Connection, EventQueue, Proxy, QueueHandle, WaylandSource,
+};
 use smithay_client_toolkit::registry::{ProvidesRegistryState, RegistryState};
 use smithay_client_toolkit::seat::touch::TouchHandler;
 use smithay_client_toolkit::seat::{Capability, SeatHandler, SeatState};
-use smithay_client_toolkit::shell::layer::{
+use smithay_client_toolkit::shell::wlr_layer::{
     LayerShell, LayerShellHandler, LayerSurface, LayerSurfaceConfigure,
 };
+use smithay_client_toolkit::shell::WaylandSurface;
 use smithay_client_toolkit::{
     delegate_compositor, delegate_layer, delegate_output, delegate_registry, delegate_seat,
     delegate_touch, registry_handlers,
@@ -38,6 +40,7 @@ use crate::module::cellular::Cellular;
 use crate::module::clock::Clock;
 use crate::module::flashlight::Flashlight;
 use crate::module::orientation::Orientation;
+use crate::module::scale::Scale;
 use crate::module::wifi::Wifi;
 use crate::module::Module;
 use crate::panel::Panel;
@@ -105,7 +108,6 @@ pub struct State {
     protocol_states: ProtocolStates,
     active_touch: Option<i32>,
     drawer_opening: bool,
-    drawer_offset: f64,
     last_touch_y: f64,
     modules: Modules,
     terminated: bool,
@@ -139,7 +141,6 @@ impl State {
             modules,
             reaper,
             drawer_opening: Default::default(),
-            drawer_offset: Default::default(),
             active_touch: Default::default(),
             last_touch_y: Default::default(),
             terminated: Default::default(),
@@ -204,11 +205,9 @@ impl State {
             }
         } else if self.drawer().owns_surface(surface) {
             let drawer = self.drawer.as_mut().unwrap();
-            if let Err(error) = drawer.draw(
-                &self.protocol_states.compositor,
-                &mut self.modules.as_slice_mut(),
-                self.drawer_offset,
-            ) {
+            if let Err(error) =
+                drawer.draw(&self.protocol_states.compositor, &mut self.modules.as_slice_mut())
+            {
                 eprintln!("Drawer rendering failed: {error:?}");
             }
         }
@@ -430,11 +429,12 @@ impl TouchHandler for State {
     ) {
         if self.active_touch == Some(id) {
             let delta = position.1 - self.last_touch_y;
-            self.drawer_offset += delta;
+
+            let drawer = self.drawer();
+            drawer.offset += delta;
+            drawer.request_frame();
 
             self.last_touch_y = position.1;
-
-            self.drawer().request_frame();
         } else {
             let dirty = self.drawer.as_mut().unwrap().touch_motion(
                 id,
@@ -508,6 +508,7 @@ struct Modules {
     flashlight: Flashlight,
     cellular: Cellular,
     battery: Battery,
+    scale: Scale,
     clock: Clock,
     wifi: Wifi,
 }
@@ -522,13 +523,15 @@ impl Modules {
             battery: Battery::new(event_loop)?,
             clock: Clock::new(event_loop)?,
             wifi: Wifi::new(event_loop)?,
+            scale: Scale::new(),
         })
     }
 
     /// Get all modules as sorted immutable slice.
-    fn as_slice(&self) -> [&dyn Module; 7] {
+    fn as_slice(&self) -> [&dyn Module; 8] {
         [
             &self.brightness,
+            &self.scale,
             &self.clock,
             &self.cellular,
             &self.wifi,
@@ -539,9 +542,10 @@ impl Modules {
     }
 
     /// Get all modules as sorted mutable slice.
-    fn as_slice_mut(&mut self) -> [&mut dyn Module; 7] {
+    fn as_slice_mut(&mut self) -> [&mut dyn Module; 8] {
         [
             &mut self.brightness,
+            &mut self.scale,
             &mut self.clock,
             &mut self.cellular,
             &mut self.wifi,
@@ -582,31 +586,34 @@ impl Mul<f64> for Size {
 
 /// Drawer animation frame.
 fn animate_drawer(now: Instant, _: &mut (), state: &mut State) -> TimeoutAction {
+    let drawer_opening = state.drawer_opening;
+    let drawer = state.drawer();
+    let max_offset = drawer.max_offset();
+
     // Compute threshold beyond which motion will automatically be completed.
-    let max_offset = state.drawer().max_offset();
-    let threshold = if state.drawer_opening {
+    let threshold = if drawer_opening {
         max_offset * ANIMATION_THRESHOLD
     } else {
         max_offset - max_offset * ANIMATION_THRESHOLD
     };
 
     // Update drawer position.
-    if state.drawer_offset >= threshold {
-        state.drawer_offset += ANIMATION_STEP;
+    if drawer.offset >= threshold {
+        drawer.offset += ANIMATION_STEP;
     } else {
-        state.drawer_offset -= ANIMATION_STEP;
+        drawer.offset -= ANIMATION_STEP;
     }
 
-    if state.drawer_offset <= 0. {
-        state.drawer().hide();
+    if drawer.offset <= 0. {
+        drawer.hide();
 
         TimeoutAction::Drop
-    } else if state.drawer_offset >= state.drawer().max_offset() {
-        state.drawer().request_frame();
+    } else if drawer.offset >= max_offset {
+        drawer.request_frame();
 
         TimeoutAction::Drop
     } else {
-        state.drawer().request_frame();
+        drawer.request_frame();
 
         TimeoutAction::ToInstant(now + ANIMATION_INTERVAL)
     }

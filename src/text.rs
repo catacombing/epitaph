@@ -147,7 +147,7 @@ impl GlRasterizer {
         width = (width as f32 * self.scale_factor as f32 * x_scale) as u32;
         height = (height as f32 * self.scale_factor as f32 * y_scale) as u32;
 
-        // Try to lead svg from cache.
+        // Try to load svg from cache.
         let entry = match self.cache.entry(CacheKey::Svg((svg, width, height))) {
             Entry::Occupied(entry) => return Ok(*entry.get()),
             Entry::Vacant(entry) => entry,
@@ -429,6 +429,7 @@ pub enum Svg {
     FlashlightOff,
     OrientationLocked,
     OrientationUnlocked,
+    Scale,
 }
 
 impl Svg {
@@ -461,11 +462,12 @@ impl Svg {
             Self::Cellular20 => (20, 15),
             Self::Cellular0 => (20, 15),
             Self::CellularDisabled => (20, 18),
-            Self::Brightness => (20, 20),
+            Self::Brightness => (1, 1),
             Self::FlashlightOn => (45, 75),
             Self::FlashlightOff => (45, 75),
             Self::OrientationLocked => (73, 65),
             Self::OrientationUnlocked => (73, 65),
+            Self::Scale => (11, 7),
         }
     }
 
@@ -505,6 +507,7 @@ impl Svg {
             Self::OrientationUnlocked => {
                 include_str!("../svgs/orientation/orientation_unlocked.svg")
             },
+            Self::Scale => include_str!("../svgs/scale/scale.svg"),
         }
     }
 }

@@ -11,9 +11,10 @@ use raw_window_handle::{RawWindowHandle, WaylandWindowHandle};
 use smithay_client_toolkit::compositor::{CompositorState, Region};
 use smithay_client_toolkit::reexports::client::protocol::wl_surface::WlSurface;
 use smithay_client_toolkit::reexports::client::{Proxy, QueueHandle};
-use smithay_client_toolkit::shell::layer::{
+use smithay_client_toolkit::shell::wlr_layer::{
     Anchor, Layer, LayerShell, LayerSurface, LayerSurfaceConfigure,
 };
+use smithay_client_toolkit::shell::WaylandSurface;
 
 use crate::module::{Alignment, Module, PanelModuleContent};
 use crate::renderer::{Renderer, TextRenderer};
@@ -79,12 +80,10 @@ impl Panel {
             unsafe { egl_config.display().create_window_surface(egl_config, &surface_attributes)? };
 
         // Create the window.
-        let window = LayerSurface::builder()
-            .anchor(Anchor::LEFT | Anchor::TOP | Anchor::RIGHT)
-            .exclusive_zone(PANEL_HEIGHT)
-            .size((0, PANEL_HEIGHT as u32))
-            .namespace("panel")
-            .map(&queue, layer, surface, Layer::Bottom)?;
+        let window =
+            layer.create_layer_surface(&queue, surface, Layer::Bottom, Some("panel"), None);
+        window.set_anchor(Anchor::LEFT | Anchor::TOP | Anchor::RIGHT);
+        window.set_size(0, PANEL_HEIGHT as u32);
 
         // Initialize the renderer.
         let mut renderer = Renderer::new(egl_context, 1)?;
