@@ -12,7 +12,7 @@ edition = "2021"
 panic = 'abort'
 
 [dependencies]
-catacomb_ipc = { path = "../catacomb/catacomb_ipc" }
+catacomb_ipc = { git = "https://github.com/chrisduerr/catacomb", rev = "4ff8e4d75ebd3640c916f3a3b0734b0f436daa52" }
 glutin = { version = "0.30.3", default-features = false, features = ["egl", "wayland"] }
 raw-window-handle = "0.5.0"
 smithay-client-toolkit = { git = "https://github.com/smithay/client-toolkit" }

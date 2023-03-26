@@ -106,6 +106,7 @@ dependencies = [
 [[package]]
 name = "catacomb_ipc"
 version = "0.1.0"
+source = "git+https://github.com/chrisduerr/catacomb?rev=4ff8e4d75ebd3640c916f3a3b0734b0f436daa52#4ff8e4d75ebd3640c916f3a3b0734b0f436daa52"
 dependencies = [
  "dirs",
  "serde",
