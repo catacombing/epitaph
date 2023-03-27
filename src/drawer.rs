@@ -119,6 +119,7 @@ impl Drawer {
         let window =
             layer.create_layer_surface(&self.queue, surface, Layer::Overlay, Some("panel"), None);
         window.set_anchor(Anchor::LEFT | Anchor::TOP | Anchor::RIGHT | Anchor::BOTTOM);
+        window.set_exclusive_zone(-1);
         self.window = Some(window);
 
         self.renderer.set_surface(Some(egl_surface));

@@ -84,6 +84,7 @@ impl Panel {
             layer.create_layer_surface(&queue, surface, Layer::Bottom, Some("panel"), None);
         window.set_anchor(Anchor::LEFT | Anchor::TOP | Anchor::RIGHT);
         window.set_size(0, PANEL_HEIGHT as u32);
+        window.set_exclusive_zone(PANEL_HEIGHT);
 
         // Initialize the renderer.
         let mut renderer = Renderer::new(egl_context, 1)?;
