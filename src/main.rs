@@ -46,6 +46,7 @@ use crate::module::Module;
 use crate::panel::Panel;
 use crate::reaper::Reaper;
 
+mod dbus;
 mod drawer;
 mod module;
 mod panel;
