@@ -365,26 +365,27 @@ impl TouchHandler for State {
         id: i32,
         position: (f64, f64),
     ) {
-        if self.active_touch.is_none() && self.panel().owns_surface(&surface) {
+        let drawer = self.drawer.as_mut().unwrap();
+        let panel = self.panel.as_ref().unwrap();
+
+        if self.active_touch.is_none() && panel.owns_surface(&surface) {
             let compositor = &self.protocol_states.compositor;
             let layer_state = &mut self.protocol_states.layer;
-            if let Err(err) = self.drawer.as_mut().unwrap().show(compositor, layer_state) {
+            if let Err(err) = drawer.show(compositor, layer_state) {
                 eprintln!("Error: Couldn't open drawer: {err}");
             }
 
+            drawer.offsetting = true;
             self.last_touch_y = position.1;
             self.active_touch = Some(id);
             self.drawer_opening = true;
-        } else if self.drawer().owns_surface(&surface) {
-            let touch_start = self.drawer.as_mut().unwrap().touch_down(
-                id,
-                position,
-                &mut self.modules.as_slice_mut(),
-            );
+        } else if drawer.owns_surface(&surface) {
+            let touch_start = drawer.touch_down(id, position, &mut self.modules.as_slice_mut());
 
             // Check drawer touch status.
             if !touch_start.module_touched {
                 // Initiate closing drawer if no module was touched.
+                drawer.offsetting = true;
                 self.last_touch_y = position.1;
                 self.active_touch = Some(id);
                 self.drawer_opening = false;
@@ -404,14 +405,15 @@ impl TouchHandler for State {
         _time: u32,
         id: i32,
     ) {
+        let drawer = self.drawer.as_mut().unwrap();
         if self.active_touch == Some(id) {
             self.active_touch = None;
+            drawer.offsetting = false;
 
             // Start drawer animation.
             let _ = self.event_loop.insert_source(Timer::immediate(), animate_drawer);
         } else {
-            let dirty =
-                self.drawer.as_mut().unwrap().touch_up(id, &mut self.modules.as_slice_mut());
+            let dirty = drawer.touch_up(id, &mut self.modules.as_slice_mut());
 
             if dirty {
                 self.request_frame();

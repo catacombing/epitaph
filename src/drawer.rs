@@ -49,6 +49,8 @@ const ICON_HEIGHT: u32 = 32;
 pub struct Drawer {
     /// Current drawer Y-offset.
     pub offset: f64,
+    /// Drawer currently in the process of being opened/closed.
+    pub offsetting: bool,
 
     window: Option<LayerSurface>,
     queue: QueueHandle<State>,
@@ -84,6 +86,7 @@ impl Drawer {
             frame_pending: Default::default(),
             touch_position: Default::default(),
             touch_module: Default::default(),
+            offsetting: Default::default(),
             touch_id: Default::default(),
             offset: Default::default(),
             window: Default::default(),
@@ -139,6 +142,9 @@ impl Drawer {
         compositor: &CompositorState,
         modules: &mut [&mut dyn Module],
     ) -> Result<()> {
+        // Clamp offset, to ensure minimize works immediately.
+        self.offset = self.offset.min(self.max_offset());
+
         let offset = (self.offset * self.scale_factor as f64).min(self.size.height as f64);
         let y_offset = (offset - self.size.height as f64) as i32;
         self.frame_pending = false;
@@ -321,7 +327,7 @@ impl Drawer {
         let _ = self.renderer.resize(size, scale_factor);
 
         // Ensure drawer stays fully open after resize.
-        if self.offset > 0. {
+        if !self.offsetting && self.offset > 0. {
             self.offset = self.max_offset();
         }
     }
