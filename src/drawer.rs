@@ -127,6 +127,9 @@ impl Drawer {
 
         self.renderer.set_surface(Some(egl_surface));
 
+        // Reset frame request tracking since we created a new surface.
+        self.frame_pending = false;
+
         Ok(())
     }
 
