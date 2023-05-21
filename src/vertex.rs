@@ -57,6 +57,11 @@ impl<R: RenderProgram> VertexBatcher<R> {
     pub fn pending(&mut self) -> &mut [R::Vertex] {
         &mut self.vertices
     }
+
+    /// Get the batcher's renderer.
+    pub fn renderer(&self) -> &R {
+        &self.renderer
+    }
 }
 
 /// Iterator over batched vertex groups.
@@ -120,7 +125,7 @@ impl<'a, R: RenderProgram> VertexBatch<'a, R> {
             gl::BufferSubData(
                 gl::ARRAY_BUFFER,
                 0,
-                (vertex_count * mem::size_of::<R::Vertex>()) as isize,
+                mem::size_of_val(self.vertices) as isize,
                 self.vertices.as_ptr() as *const _,
             );
 

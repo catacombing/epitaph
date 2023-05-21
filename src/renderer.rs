@@ -91,6 +91,8 @@ impl Renderer {
         let offset_x = -1.;
         let offset_y = 1.;
 
+        // Update the text renderer's uniform.
+        self.text_batcher.renderer().bind();
         unsafe {
             gl::Uniform4f(0, offset_x, offset_y, scale_x, scale_y);
         }
