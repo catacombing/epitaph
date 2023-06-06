@@ -1,6 +1,6 @@
 use std::error::Error;
 use std::ffi::CString;
-use std::ops::Mul;
+use std::ops::{Div, Mul};
 use std::process;
 use std::result::Result as StdResult;
 use std::time::{Duration, Instant};
@@ -44,12 +44,15 @@ use crate::module::scale::Scale;
 use crate::module::wifi::Wifi;
 use crate::module::Module;
 use crate::panel::Panel;
+use crate::protocols::fractional_scale::{FractionalScaleHandler, FractionalScaleManager};
+use crate::protocols::viewporter::Viewporter;
 use crate::reaper::Reaper;
 
 mod dbus;
 mod drawer;
 mod module;
 mod panel;
+mod protocols;
 mod reaper;
 mod renderer;
 mod text;
@@ -186,7 +189,9 @@ impl State {
 
         // Setup panel window.
         self.panel = Some(Panel::new(
+            &self.protocol_states.fractional_scale,
             &self.protocol_states.compositor,
+            &self.protocol_states.viewporter,
             queue.handle(),
             &mut self.protocol_states.layer,
             &egl_config,
@@ -205,10 +210,9 @@ impl State {
                 eprintln!("Panel rendering failed: {error:?}");
             }
         } else if self.drawer().owns_surface(surface) {
+            let compositor = &self.protocol_states.compositor;
             let drawer = self.drawer.as_mut().unwrap();
-            if let Err(error) =
-                drawer.draw(&self.protocol_states.compositor, &mut self.modules.as_slice_mut())
-            {
+            if let Err(error) = drawer.draw(compositor, &mut self.modules.as_slice_mut()) {
                 eprintln!("Drawer rendering failed: {error:?}");
             }
         }
@@ -242,15 +246,10 @@ impl CompositorHandler for State {
         &mut self,
         _connection: &Connection,
         _queue: &QueueHandle<Self>,
-        surface: &WlSurface,
-        factor: i32,
+        _surface: &WlSurface,
+        _factor: i32,
     ) {
-        if self.panel().owns_surface(surface) {
-            self.panel().set_scale_factor(factor);
-        } else if self.drawer().owns_surface(surface) {
-            self.drawer().set_scale_factor(factor);
-        }
-        self.draw(surface);
+        // NOTE: We exclusively use fractional scaling.
     }
 
     fn frame(
@@ -260,6 +259,23 @@ impl CompositorHandler for State {
         surface: &WlSurface,
         _time: u32,
     ) {
+        self.draw(surface);
+    }
+}
+
+impl FractionalScaleHandler for State {
+    fn scale_factor_changed(
+        &mut self,
+        _connection: &Connection,
+        _queue: &QueueHandle<Self>,
+        surface: &WlSurface,
+        factor: f64,
+    ) {
+        if self.panel().owns_surface(surface) {
+            self.panel.as_mut().unwrap().set_scale_factor(&self.protocol_states.compositor, factor);
+        } else if self.drawer().owns_surface(surface) {
+            self.drawer().set_scale_factor(factor);
+        }
         self.draw(surface);
     }
 }
@@ -369,9 +385,11 @@ impl TouchHandler for State {
         let panel = self.panel.as_ref().unwrap();
 
         if self.active_touch.is_none() && panel.owns_surface(&surface) {
+            let fractional_scale = &self.protocol_states.fractional_scale;
             let compositor = &self.protocol_states.compositor;
+            let viewporter = &self.protocol_states.viewporter;
             let layer_state = &mut self.protocol_states.layer;
-            if let Err(err) = drawer.show(compositor, layer_state) {
+            if let Err(err) = drawer.show(fractional_scale, compositor, viewporter, layer_state) {
                 eprintln!("Error: Couldn't open drawer: {err}");
             }
 
@@ -485,8 +503,10 @@ delegate_registry!(State);
 
 #[derive(Debug)]
 struct ProtocolStates {
+    fractional_scale: FractionalScaleManager,
     compositor: CompositorState,
     registry: RegistryState,
+    viewporter: Viewporter,
     output: OutputState,
     layer: LayerShell,
     seat: SeatState,
@@ -496,7 +516,10 @@ impl ProtocolStates {
     fn new(globals: &GlobalList, queue: &QueueHandle<State>) -> Self {
         Self {
             registry: RegistryState::new(globals),
+            fractional_scale: FractionalScaleManager::new(globals, queue)
+                .expect("missing wp_fractional_scale"),
             compositor: CompositorState::bind(globals, queue).expect("missing wl_compositor"),
+            viewporter: Viewporter::new(globals, queue).expect("missing wp_viewporter"),
             layer: LayerShell::bind(globals, queue).expect("missing wlr_layer_shell"),
             output: OutputState::new(globals, queue),
             seat: SeatState::new(globals, queue),
@@ -583,6 +606,16 @@ impl Mul<f64> for Size {
     fn mul(mut self, factor: f64) -> Self {
         self.width = (self.width as f64 * factor) as i32;
         self.height = (self.height as f64 * factor) as i32;
+        self
+    }
+}
+
+impl Div<f64> for Size {
+    type Output = Self;
+
+    fn div(mut self, factor: f64) -> Self {
+        self.width = (self.width as f64 / factor).round() as i32;
+        self.height = (self.height as f64 / factor).round() as i32;
         self
     }
 }

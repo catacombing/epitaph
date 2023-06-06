@@ -35,14 +35,14 @@ pub struct GlRasterizer {
     font: FontKey,
 
     // DPI scale factor.
-    scale_factor: i32,
+    scale_factor: f64,
 }
 
 impl GlRasterizer {
     pub fn new(
         font_name: impl Into<String>,
         size: impl Into<FontSize>,
-        scale_factor: i32,
+        scale_factor: f64,
     ) -> Result<Self> {
         let font_name = font_name.into();
         let size = size.into();
@@ -66,7 +66,7 @@ impl GlRasterizer {
     }
 
     /// Update the DPI scale factor.
-    pub fn set_scale_factor(&mut self, scale_factor: i32) {
+    pub fn set_scale_factor(&mut self, scale_factor: f64) {
         // Avoid clearing all caches when factor didn't change.
         if self.scale_factor == scale_factor {
             return;
@@ -135,8 +135,8 @@ impl GlRasterizer {
     ) -> Result<GlSubTexture> {
         // Calculate SVG X/Y scale factor.
         let (mut width, mut height) = svg.size();
-        let x_scale = target_width.into().map(|tw| tw as f32 / width as f32);
-        let y_scale = target_height.into().map(|th| th as f32 / height as f32);
+        let x_scale = target_width.into().map(|tw| tw as f64 / width as f64);
+        let y_scale = target_height.into().map(|th| th as f64 / height as f64);
         let (x_scale, y_scale) = match (x_scale, y_scale) {
             (Some(x_scale), Some(y_scale)) => (x_scale, y_scale),
             (Some(scale), None) | (None, Some(scale)) => (scale, scale),
@@ -144,8 +144,8 @@ impl GlRasterizer {
         };
 
         // Calculate target dimensions.
-        width = (width as f32 * self.scale_factor as f32 * x_scale) as u32;
-        height = (height as f32 * self.scale_factor as f32 * y_scale) as u32;
+        width = (width as f64 * self.scale_factor * x_scale) as u32;
+        height = (height as f64 * self.scale_factor * y_scale) as u32;
 
         // Try to load svg from cache.
         let entry = match self.cache.entry(CacheKey::Svg((svg, width, height))) {
@@ -158,7 +158,7 @@ impl GlRasterizer {
             .ok_or_else(|| format!("Invalid SVG buffer size: {width}x{height}"))?;
 
         // Compute transform for height.
-        let transform = Transform::from_scale(1., y_scale / x_scale);
+        let transform = Transform::from_scale(1., (y_scale / x_scale) as f32);
 
         // Render SVG into buffer.
         let tree = Tree::from_str(svg.content(), &Options::default().to_ref())?;
@@ -194,7 +194,7 @@ impl GlRasterizer {
         rasterizer: &mut Rasterizer,
         font_name: &str,
         size: FontSize,
-        scale_factor: i32,
+        scale_factor: f64,
     ) -> Result<FontKey> {
         let font_style = Style::Description { slant: Slant::Normal, weight: Weight::Normal };
         let font_desc = FontDesc::new(font_name, font_style);

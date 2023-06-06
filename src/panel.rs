@@ -1,4 +1,5 @@
 //! Panel window state.
+
 use std::num::NonZeroU32;
 
 use crossfont::Metrics;
@@ -11,12 +12,15 @@ use raw_window_handle::{RawWindowHandle, WaylandWindowHandle};
 use smithay_client_toolkit::compositor::{CompositorState, Region};
 use smithay_client_toolkit::reexports::client::protocol::wl_surface::WlSurface;
 use smithay_client_toolkit::reexports::client::{Proxy, QueueHandle};
+use smithay_client_toolkit::reexports::protocols::wp::viewporter::client::wp_viewport::WpViewport;
 use smithay_client_toolkit::shell::wlr_layer::{
     Anchor, Layer, LayerShell, LayerSurface, LayerSurfaceConfigure,
 };
 use smithay_client_toolkit::shell::WaylandSurface;
 
 use crate::module::{Alignment, Module, PanelModuleContent};
+use crate::protocols::fractional_scale::FractionalScaleManager;
+use crate::protocols::viewporter::Viewporter;
 use crate::renderer::{Renderer, TextRenderer};
 use crate::text::{GlRasterizer, Svg};
 use crate::vertex::VertexBatcher;
@@ -28,24 +32,27 @@ pub const PANEL_HEIGHT: i32 = 20;
 /// Panel SVG width.
 const MODULE_WIDTH: u32 = 20;
 
-/// Panel padding to the screen edges.
-const EDGE_PADDING: i16 = 5;
-
 /// Padding between panel modules.
-const MODULE_PADDING: i16 = 5;
+const MODULE_PADDING: f64 = 5.;
+
+/// Panel padding to the screen edges.
+const EDGE_PADDING: f64 = 5.;
 
 pub struct Panel {
     queue: QueueHandle<State>,
+    viewport: WpViewport,
     window: LayerSurface,
     frame_pending: bool,
     renderer: Renderer,
-    scale_factor: i32,
+    scale_factor: f64,
     size: Size,
 }
 
 impl Panel {
     pub fn new(
+        fractional_scale: &FractionalScaleManager,
         compositor: &CompositorState,
+        viewporter: &Viewporter,
         queue: QueueHandle<State>,
         layer: &mut LayerShell,
         egl_config: &Config,
@@ -87,10 +94,16 @@ impl Panel {
         window.set_exclusive_zone(PANEL_HEIGHT);
 
         // Initialize the renderer.
-        let mut renderer = Renderer::new(egl_context, 1)?;
+        let mut renderer = Renderer::new(egl_context, 1.)?;
         renderer.set_surface(Some(egl_surface));
 
-        Ok(Self { renderer, window, queue, size, frame_pending: false, scale_factor: 1 })
+        // Initialize fractional scaling protocol.
+        fractional_scale.fractional_scaling(&queue, window.wl_surface());
+
+        // Initialize viewporter protocol.
+        let viewport = viewporter.viewport(&queue, window.wl_surface());
+
+        Ok(Self { viewport, renderer, window, queue, size, frame_pending: false, scale_factor: 1. })
     }
 
     /// Render the panel.
@@ -130,27 +143,19 @@ impl Panel {
     }
 
     /// Update the DPI scale factor.
-    pub fn set_scale_factor(&mut self, scale_factor: i32) {
-        self.window.wl_surface().set_buffer_scale(scale_factor);
-
-        let factor_change = scale_factor as f64 / self.scale_factor as f64;
+    pub fn set_scale_factor(&mut self, compositor: &CompositorState, scale_factor: f64) {
+        let factor_change = scale_factor / self.scale_factor;
         self.scale_factor = scale_factor;
 
-        self.resize(self.size * factor_change);
+        self.resize(compositor, self.size * factor_change);
     }
 
     /// Reconfigure the window.
     pub fn reconfigure(&mut self, compositor: &CompositorState, configure: LayerSurfaceConfigure) {
         // Update size.
         let new_width = configure.new_size.0 as i32;
-        let size = Size::new(new_width, PANEL_HEIGHT) * self.scale_factor as f64;
-        self.resize(size);
-
-        // Set opaque region.
-        if let Ok(region) = Region::new(compositor) {
-            region.add(0, 0, new_width, PANEL_HEIGHT);
-            self.window.wl_surface().set_opaque_region(Some(region.wl_region()));
-        }
+        let size = Size::new(new_width, PANEL_HEIGHT) * self.scale_factor;
+        self.resize(compositor, size);
     }
 
     /// Request a new frame.
@@ -166,8 +171,18 @@ impl Panel {
     }
 
     /// Resize the window.
-    fn resize(&mut self, size: Size) {
+    fn resize(&mut self, compositor: &CompositorState, size: Size) {
         self.size = size;
+
+        // Update viewporter buffer target size.
+        let logical_size = size / self.scale_factor;
+        self.viewport.set_destination(logical_size.width, logical_size.height);
+
+        // Update opaque region.
+        if let Ok(region) = Region::new(compositor) {
+            region.add(0, 0, logical_size.width, logical_size.height);
+            self.window.wl_surface().set_opaque_region(Some(region.wl_region()));
+        }
 
         let scale_factor = self.scale_factor;
         let _ = self.renderer.resize(size, scale_factor);
@@ -179,7 +194,7 @@ struct PanelRun<'a> {
     batcher: &'a mut VertexBatcher<TextRenderer>,
     rasterizer: &'a mut GlRasterizer,
     alignment: Alignment,
-    scale_factor: i16,
+    scale_factor: f64,
     metrics: Metrics,
     size: Size<f32>,
     width: i16,
@@ -190,7 +205,7 @@ impl<'a> PanelRun<'a> {
         Ok(Self {
             alignment,
             size,
-            scale_factor: renderer.scale_factor as i16,
+            scale_factor: renderer.scale_factor,
             metrics: renderer.rasterizer.metrics()?,
             rasterizer: &mut renderer.rasterizer,
             batcher: &mut renderer.text_batcher,
@@ -268,11 +283,11 @@ impl<'a> PanelRun<'a> {
 
     /// Module padding with scale factor applied.
     fn module_padding(&self) -> i16 {
-        MODULE_PADDING * self.scale_factor
+        (MODULE_PADDING * self.scale_factor).round() as i16
     }
 
     /// Edge padding with scale factor applied.
     fn edge_padding(&self) -> i16 {
-        EDGE_PADDING * self.scale_factor
+        (EDGE_PADDING * self.scale_factor).round() as i16
     }
 }

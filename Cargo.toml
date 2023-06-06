@@ -17,6 +17,7 @@ glutin = { version = "0.30.3", default-features = false, features = ["egl", "way
 raw-window-handle = "0.5.0"
 smithay-client-toolkit = { git = "https://github.com/smithay/client-toolkit" }
 wayland-backend = { version = "0.1.0", features = ["client_system"] }
+wayland-protocols = { version = "0.30.0", features = ["staging"] }
 calloop = "0.10.1"
 crossfont = "0.5.0"
 chrono = { version = "0.4.20", default-features = false, features = ["clock"] }

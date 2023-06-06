@@ -1,4 +1,5 @@
 //! Drawer window state.
+
 use std::num::NonZeroU32;
 
 use glutin::api::egl::config::Config;
@@ -11,6 +12,7 @@ use raw_window_handle::{RawWindowHandle, WaylandWindowHandle};
 use smithay_client_toolkit::compositor::{CompositorState, Region};
 use smithay_client_toolkit::reexports::client::protocol::wl_surface::WlSurface;
 use smithay_client_toolkit::reexports::client::{Proxy, QueueHandle};
+use smithay_client_toolkit::reexports::protocols::wp::viewporter::client::wp_viewport::WpViewport;
 use smithay_client_toolkit::shell::wlr_layer::{
     Anchor, Layer, LayerShell, LayerSurface, LayerSurfaceConfigure,
 };
@@ -18,6 +20,8 @@ use smithay_client_toolkit::shell::WaylandSurface;
 
 use crate::module::{DrawerModule, Module, Slider, Toggle};
 use crate::panel::PANEL_HEIGHT;
+use crate::protocols::fractional_scale::FractionalScaleManager;
+use crate::protocols::viewporter::Viewporter;
 use crate::renderer::{RectRenderer, Renderer, TextRenderer};
 use crate::text::GlRasterizer;
 use crate::vertex::{RectVertex, VertexBatcher};
@@ -26,7 +30,7 @@ use crate::{gl, Result, Size, State};
 /// Slider module height.
 ///
 /// This should be less than `MODULE_SIZE`.
-const SLIDER_HEIGHT: i16 = MODULE_SIZE as i16 - 16;
+const SLIDER_HEIGHT: f64 = (MODULE_SIZE - 16) as f64;
 
 /// Color of slider handle and active buttons,
 const MODULE_COLOR_FG: [u8; 4] = [85, 85, 85, 255];
@@ -35,10 +39,10 @@ const MODULE_COLOR_FG: [u8; 4] = [85, 85, 85, 255];
 const MODULE_COLOR_BG: [u8; 4] = [51, 51, 51, 255];
 
 /// Padding between drawer modules.
-const MODULE_PADDING: i16 = 16;
+const MODULE_PADDING: f64 = 16.;
 
 /// Drawer padding to the screen edges.
-const EDGE_PADDING: i16 = 24;
+const EDGE_PADDING: f64 = 24.;
 
 /// Drawer module width and height.
 const MODULE_SIZE: u32 = 64;
@@ -52,6 +56,7 @@ pub struct Drawer {
     /// Drawer currently in the process of being opened/closed.
     pub offsetting: bool,
 
+    viewport: Option<WpViewport>,
     window: Option<LayerSurface>,
     queue: QueueHandle<State>,
     touch_module: Option<usize>,
@@ -59,7 +64,7 @@ pub struct Drawer {
     touch_id: Option<i32>,
     frame_pending: bool,
     renderer: Renderer,
-    scale_factor: i32,
+    scale_factor: f64,
     size: Size,
 }
 
@@ -76,17 +81,18 @@ impl Drawer {
             unsafe { egl_config.display().create_context(egl_config, &context_attribules)? };
 
         // Initialize the renderer.
-        let renderer = Renderer::new(egl_context, 1)?;
+        let renderer = Renderer::new(egl_context, 1.)?;
 
         Ok(Self {
             renderer,
             queue,
             size,
-            scale_factor: 1,
+            scale_factor: 1.,
             frame_pending: Default::default(),
             touch_position: Default::default(),
             touch_module: Default::default(),
             offsetting: Default::default(),
+            viewport: Default::default(),
             touch_id: Default::default(),
             offset: Default::default(),
             window: Default::default(),
@@ -94,7 +100,13 @@ impl Drawer {
     }
 
     /// Create the window.
-    pub fn show(&mut self, compositor: &CompositorState, layer: &mut LayerShell) -> Result<()> {
+    pub fn show(
+        &mut self,
+        fractional_scale: &FractionalScaleManager,
+        compositor: &CompositorState,
+        viewporter: &Viewporter,
+        layer: &mut LayerShell,
+    ) -> Result<()> {
         // Ensure the window is not mapped yet.
         if self.window.is_some() {
             return Ok(());
@@ -103,32 +115,27 @@ impl Drawer {
         // Create the Wayland surface.
         let surface = compositor.create_surface(&self.queue);
 
-        let mut wayland_window_handle = WaylandWindowHandle::empty();
-        wayland_window_handle.surface = surface.id().as_ptr() as *mut _;
-        let raw_window_handle = RawWindowHandle::Wayland(wayland_window_handle);
-
-        // Create the EGL surface.
-        let config = self.renderer.egl_context().config();
-        let surface_attributes = SurfaceAttributesBuilder::<WindowSurface>::new().build(
-            raw_window_handle,
-            NonZeroU32::new(self.size.width as u32).unwrap(),
-            NonZeroU32::new(self.size.height as u32).unwrap(),
-        );
-
-        let egl_surface =
-            unsafe { config.display().create_window_surface(&config, &surface_attributes)? };
-
         // Setup layer shell surface.
         let window =
             layer.create_layer_surface(&self.queue, surface, Layer::Overlay, Some("panel"), None);
         window.set_anchor(Anchor::LEFT | Anchor::TOP | Anchor::RIGHT | Anchor::BOTTOM);
         window.set_exclusive_zone(-1);
-        self.window = Some(window);
 
-        self.renderer.set_surface(Some(egl_surface));
+        // Initialize fractional scaling protocol.
+        fractional_scale.fractional_scaling(&self.queue, window.wl_surface());
+
+        // Initialize viewporter protocol.
+        let viewport = viewporter.viewport(&self.queue, window.wl_surface());
+
+        // Set initial viewport size based on last resize.
+        let logical_size = self.size / self.scale_factor;
+        viewport.set_destination(logical_size.width, logical_size.height);
 
         // Reset frame request tracking since we created a new surface.
         self.frame_pending = false;
+
+        self.viewport = Some(viewport);
+        self.window = Some(window);
 
         Ok(())
     }
@@ -145,20 +152,26 @@ impl Drawer {
         compositor: &CompositorState,
         modules: &mut [&mut dyn Module],
     ) -> Result<()> {
-        // Clamp offset, to ensure minimize works immediately.
-        self.offset = self.offset.min(self.max_offset());
-
-        let offset = (self.offset * self.scale_factor as f64).min(self.size.height as f64);
-        let y_offset = (offset - self.size.height as f64) as i32;
         self.frame_pending = false;
+
+        // Clamp offset, to ensure minimize works immediately.
+        self.offset = self.offset.min(self.max_offset()).max(0.);
+
+        // Calculate drawer offset.
+        let offset = (self.offset * self.scale_factor).min(self.size.height as f64);
+        let y_offset = self.size.height - offset.round() as i32;
+
+        // Skip rendering if there's nothing to draw.
+        if y_offset >= self.size.height {
+            return Ok(());
+        }
 
         // Update opaque region.
         let region = Region::new(compositor).ok();
         if let Some((window, region)) = self.window.as_ref().zip(region) {
-            let y = (y_offset / self.scale_factor + PANEL_HEIGHT).max(0);
-            let width = self.size.width / self.scale_factor;
-            let height = offset as i32 / self.scale_factor - y;
-            region.add(0, y, width, height);
+            let y = (self.offset + PANEL_HEIGHT as f64).round() as i32;
+            let logical_size = self.size / self.scale_factor;
+            region.add(0, y, logical_size.width, logical_size.height - y);
             window.wl_surface().set_opaque_region(Some(region.wl_region()));
         }
 
@@ -170,10 +183,10 @@ impl Drawer {
             gl::Clear(gl::COLOR_BUFFER_BIT);
 
             // Setup drawer to render at correct offset.
-            let drawer_height = self.size.height - PANEL_HEIGHT * renderer.scale_factor;
+            let panel_height = (PANEL_HEIGHT as f64 * renderer.scale_factor).round() as i32;
             gl::Enable(gl::SCISSOR_TEST);
-            gl::Scissor(0, -y_offset, self.size.width, drawer_height);
-            gl::Viewport(0, -y_offset, self.size.width, self.size.height);
+            gl::Scissor(0, y_offset, self.size.width, self.size.height - panel_height);
+            gl::Viewport(0, y_offset, self.size.width, self.size.height);
 
             // Draw background for the offset viewport.
             gl::ClearColor(0.1, 0.1, 0.1, 1.0);
@@ -196,16 +209,8 @@ impl Drawer {
     }
 
     /// Update the DPI scale factor.
-    pub fn set_scale_factor(&mut self, scale_factor: i32) {
-        // Ensure the window is currently mapped.
-        let window = match &self.window {
-            Some(window) => window,
-            None => return,
-        };
-
-        window.wl_surface().set_buffer_scale(scale_factor);
-
-        let factor_change = scale_factor as f64 / self.scale_factor as f64;
+    pub fn set_scale_factor(&mut self, scale_factor: f64) {
+        let factor_change = scale_factor / self.scale_factor;
         self.scale_factor = scale_factor;
 
         self.resize(self.size * factor_change);
@@ -215,7 +220,7 @@ impl Drawer {
     pub fn reconfigure(&mut self, configure: LayerSurfaceConfigure) {
         let new_width = configure.new_size.0 as i32;
         let new_height = configure.new_size.1 as i32;
-        let size = Size::new(new_width, new_height) * self.scale_factor as f64;
+        let size = Size::new(new_width, new_height) * self.scale_factor;
         self.resize(size);
     }
 
@@ -244,7 +249,7 @@ impl Drawer {
         self.touch_id = Some(id);
 
         // Find touched module.
-        let positioner = ModulePositioner::new(self.size.into(), self.scale_factor as i16);
+        let positioner = ModulePositioner::new(self.size.into(), self.scale_factor);
         let (index, x) = match positioner.module_position(modules, self.touch_position) {
             Some((index, x, _)) => (index, x),
             None => return TouchStart { requires_redraw: false, module_touched: false },
@@ -276,7 +281,7 @@ impl Drawer {
         self.touch_position = scale_touch(position, self.scale_factor);
 
         // Update slider position.
-        let positioner = ModulePositioner::new(self.size.into(), self.scale_factor as i16);
+        let positioner = ModulePositioner::new(self.size.into(), self.scale_factor);
         match self.touch_module.and_then(|module| modules[module].drawer_module()) {
             Some(DrawerModule::Slider(slider)) => {
                 let relative_x = self.touch_position.0 - positioner.edge_padding as f64;
@@ -319,20 +324,57 @@ impl Drawer {
 
     /// Drawer offset when fully visible.
     pub fn max_offset(&self) -> f64 {
-        (self.size.height / self.scale_factor) as f64
+        self.size.height as f64 / self.scale_factor
     }
 
     /// Resize the window.
     fn resize(&mut self, size: Size) {
         self.size = size;
 
-        let scale_factor = self.scale_factor;
-        let _ = self.renderer.resize(size, scale_factor);
+        self.resize_surface(size);
+
+        // Update viewporter buffer target size.
+        let logical_size = size / self.scale_factor;
+        if let Some(viewport) = &self.viewport {
+            viewport.set_destination(logical_size.width, logical_size.height);
+        }
 
         // Ensure drawer stays fully open after resize.
         if !self.offsetting && self.offset > 0. {
             self.offset = self.max_offset();
         }
+    }
+
+    /// Resize EGL surface, dynamically initializing it on first resize.
+    fn resize_surface(&mut self, size: Size) {
+        // Resize if the surface exists already.
+        if self.renderer.has_surface() {
+            let _ = self.renderer.resize(size, self.scale_factor);
+            return;
+        }
+
+        // Otherwise create a new EGL surface of the desired size.
+
+        let window = match &self.window {
+            Some(window) => window,
+            None => return,
+        };
+
+        // Get raw window handle.
+        let mut wayland_window_handle = WaylandWindowHandle::empty();
+        wayland_window_handle.surface = window.wl_surface().id().as_ptr() as *mut _;
+        let raw_window_handle = RawWindowHandle::Wayland(wayland_window_handle);
+
+        let config = self.renderer.egl_context().config();
+        let surface_attributes = SurfaceAttributesBuilder::<WindowSurface>::new().build(
+            raw_window_handle,
+            NonZeroU32::new(size.width as u32).unwrap(),
+            NonZeroU32::new(size.height as u32).unwrap(),
+        );
+
+        let display = config.display();
+        let egl_surface = unsafe { display.create_window_surface(&config, &surface_attributes) };
+        self.renderer.set_surface(egl_surface.ok());
     }
 }
 
@@ -356,7 +398,7 @@ struct DrawerRun<'a> {
 impl<'a> DrawerRun<'a> {
     fn new(renderer: &'a mut Renderer) -> Self {
         Self {
-            positioner: ModulePositioner::new(renderer.size, renderer.scale_factor as i16),
+            positioner: ModulePositioner::new(renderer.size, renderer.scale_factor),
             rasterizer: &mut renderer.rasterizer,
             text_batcher: &mut renderer.text_batcher,
             rect_batcher: &mut renderer.rect_batcher,
@@ -494,15 +536,15 @@ struct ModulePositioner {
 }
 
 impl ModulePositioner {
-    pub fn new(size: Size<f32>, scale_factor: i16) -> Self {
+    pub fn new(size: Size<f32>, scale_factor: f64) -> Self {
         let size = Size::new(size.width as i16, size.height as i16);
 
         // Scale constants by DPI scale factor.
-        let panel_height = PANEL_HEIGHT as i16 * scale_factor;
-        let module_size = MODULE_SIZE as i16 * scale_factor;
-        let module_padding = MODULE_PADDING * scale_factor;
-        let slider_height = SLIDER_HEIGHT * scale_factor;
-        let edge_padding = EDGE_PADDING * scale_factor;
+        let panel_height = (PANEL_HEIGHT as f64 * scale_factor).round() as i16;
+        let module_size = (MODULE_SIZE as f64 * scale_factor).round() as i16;
+        let module_padding = (MODULE_PADDING * scale_factor).round() as i16;
+        let slider_height = (SLIDER_HEIGHT * scale_factor).round() as i16;
+        let edge_padding = (EDGE_PADDING * scale_factor).round() as i16;
 
         let content_width = size.width - edge_padding * 2;
         let padded_module_size = module_size + module_padding;
@@ -569,6 +611,6 @@ impl ModulePositioner {
 }
 
 /// Scale touch position by scale factor.
-fn scale_touch(position: (f64, f64), scale_factor: i32) -> (f64, f64) {
-    (position.0 * scale_factor as f64, position.1 * scale_factor as f64)
+fn scale_touch(position: (f64, f64), scale_factor: f64) -> (f64, f64) {
+    (position.0 * scale_factor, position.1 * scale_factor)
 }

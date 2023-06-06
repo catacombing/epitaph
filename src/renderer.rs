@@ -37,7 +37,7 @@ pub struct Renderer {
     pub text_batcher: VertexBatcher<TextRenderer>,
     pub rect_batcher: VertexBatcher<RectRenderer>,
     pub rasterizer: GlRasterizer,
-    pub scale_factor: i32,
+    pub scale_factor: f64,
     pub size: Size<f32>,
 
     egl_surface: Option<Surface<WindowSurface>>,
@@ -46,7 +46,7 @@ pub struct Renderer {
 
 impl Renderer {
     /// Initialize a new renderer.
-    pub fn new(egl_context: NotCurrentContext, scale_factor: i32) -> Result<Self> {
+    pub fn new(egl_context: NotCurrentContext, scale_factor: f64) -> Result<Self> {
         unsafe {
             // Enable the OpenGL context.
             let egl_context = egl_context.make_current_surfaceless()?;
@@ -68,7 +68,7 @@ impl Renderer {
     }
 
     /// Update viewport size.
-    pub fn resize(&mut self, size: Size, scale_factor: i32) -> Result<()> {
+    pub fn resize(&mut self, size: Size, scale_factor: f64) -> Result<()> {
         // XXX: Resize here **must** be performed before making the EGL context current,
         // to avoid locking the back buffer and delaying the resize by one
         // frame.
@@ -127,6 +127,11 @@ impl Renderer {
     /// Update the renderer's active EGL surface.
     pub fn set_surface(&mut self, egl_surface: Option<Surface<WindowSurface>>) {
         self.egl_surface = egl_surface;
+    }
+
+    /// Check if the EGL surface is initialized.
+    pub fn has_surface(&self) -> bool {
+        self.egl_surface.is_some()
     }
 
     /// Bind this renderer's program and buffers.
