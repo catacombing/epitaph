@@ -169,9 +169,12 @@ impl Drawer {
         // Update opaque region.
         let region = Region::new(compositor).ok();
         if let Some((window, region)) = self.window.as_ref().zip(region) {
-            let y = (self.offset + PANEL_HEIGHT as f64).round() as i32;
+            // Calculate vertical opaque region start.
             let logical_size = self.size / self.scale_factor;
-            region.add(0, y, logical_size.width, logical_size.height - y);
+            let drawer_height = logical_size.height - PANEL_HEIGHT;
+            let y = (self.offset - drawer_height as f64).max(0.).round() as i32;
+
+            region.add(0, y, logical_size.width, self.offset.round() as i32);
             window.wl_surface().set_opaque_region(Some(region.wl_region()));
         }
 
