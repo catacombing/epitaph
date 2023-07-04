@@ -1,6 +1,6 @@
 //! Catacomb output scale.
 
-use catacomb_ipc::{self, IpcMessage};
+use catacomb_ipc::{self, IpcMessage, WindowScale};
 
 use crate::module::{DrawerModule, Module, Slider};
 use crate::text::Svg;
@@ -38,7 +38,7 @@ impl Slider for Scale {
 
     fn on_touch_up(&mut self) -> Result<()> {
         // Update Catacomb's scale.
-        let msg = IpcMessage::Scale { scale: self.scale };
+        let msg = IpcMessage::Scale { scale: WindowScale::Fixed(self.scale), app_id: None };
         catacomb_ipc::send_message(&msg)
     }
 
