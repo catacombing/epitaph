@@ -1,4 +1,5 @@
 //! Watchdog for spawning subprocesses.
+#![allow(dead_code)]
 
 use std::collections::HashMap;
 use std::ffi::OsStr;

@@ -54,7 +54,7 @@ impl Panel {
         compositor: &CompositorState,
         viewporter: &Viewporter,
         queue: QueueHandle<State>,
-        layer: &mut LayerShell,
+        layer: &LayerShell,
         egl_config: &Config,
     ) -> Result<Self> {
         // Default to 1x1 initial size since 0x0 EGL surfaces are illegal.

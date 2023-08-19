@@ -3,8 +3,7 @@
 use calloop::channel::Event;
 use calloop::LoopHandle;
 
-use crate::dbus::network_manager;
-use crate::dbus::network_manager::WifiConnection;
+use crate::dbus::network_manager::{self, WifiConnection};
 use crate::module::{Alignment, DrawerModule, Module, PanelModule, PanelModuleContent, Toggle};
 use crate::text::Svg;
 use crate::{Result, State};

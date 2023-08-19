@@ -105,7 +105,7 @@ impl Drawer {
         fractional_scale: &FractionalScaleManager,
         compositor: &CompositorState,
         viewporter: &Viewporter,
-        layer: &mut LayerShell,
+        layer: &LayerShell,
     ) -> Result<()> {
         // Ensure the window is not mapped yet.
         if self.window.is_some() {

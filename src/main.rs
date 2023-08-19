@@ -78,22 +78,22 @@ pub type Result<T> = StdResult<T, Box<dyn Error>>;
 
 fn main() {
     // Initialize Wayland connection.
-    let mut connection = match Connection::connect_to_env() {
+    let connection = match Connection::connect_to_env() {
         Ok(connection) => connection,
         Err(err) => {
             eprintln!("Error: {err}");
             process::exit(1);
         },
     };
-    let (globals, mut queue) =
+    let (globals, queue) =
         globals::registry_queue_init(&connection).expect("initialize registry queue");
 
     // Initialize calloop event loop.
     let mut event_loop = EventLoop::try_new().expect("initialize event loop");
 
     // Setup shared state.
-    let mut state = State::new(&mut connection, &globals, &mut queue, event_loop.handle())
-        .expect("state setup");
+    let mut state =
+        State::new(&connection, &globals, &queue, event_loop.handle()).expect("state setup");
 
     // Insert wayland source into calloop loop.
     let wayland_source = WaylandSource::new(queue).expect("wayland source creation");
@@ -124,9 +124,9 @@ pub struct State {
 
 impl State {
     fn new(
-        connection: &mut Connection,
+        connection: &Connection,
         globals: &GlobalList,
-        queue: &mut EventQueue<Self>,
+        queue: &EventQueue<Self>,
         event_loop: LoopHandle<'static, Self>,
     ) -> Result<Self> {
         // Setup globals.
@@ -159,11 +159,7 @@ impl State {
     }
 
     /// Initialize the panel/drawer windows and their EGL surfaces.
-    fn init_windows(
-        &mut self,
-        connection: &mut Connection,
-        queue: &EventQueue<Self>,
-    ) -> Result<()> {
+    fn init_windows(&mut self, connection: &Connection, queue: &EventQueue<Self>) -> Result<()> {
         let mut wayland_display = WaylandDisplayHandle::empty();
         wayland_display.display = connection.display().id().as_ptr() as *mut _;
         let raw_display_handle = RawDisplayHandle::Wayland(wayland_display);
@@ -193,7 +189,7 @@ impl State {
             &self.protocol_states.compositor,
             &self.protocol_states.viewporter,
             queue.handle(),
-            &mut self.protocol_states.layer,
+            &self.protocol_states.layer,
             &egl_config,
         )?);
 
