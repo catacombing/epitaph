@@ -84,12 +84,12 @@ async fn run_dbus_loop(tx: Sender<WifiConnection>) -> Result<(), Box<dyn Error>>
     // Get network manager interface.
     let network_manager = NetworkManagerProxy::new(&connection).await?;
 
-    // Get WiFi device.
-    let wireless_device =
-        wireless_device(&connection, &network_manager).await.ok_or("no wifi device found")?;
+    // Get stream for WiFi device changes.
+    let mut device_added_stream = network_manager.receive_device_added().await?;
+    let mut device_removed_stream = network_manager.receive_device_added().await?;
 
-    // Get stream for active AP changes.
-    let mut active_ap_stream = wireless_device.receive_active_access_point_changed().await;
+    // Get WiFi device and update stream.
+    let mut wireless_device = active_wireless_device(&connection, &network_manager).await;
 
     // Get stream for connectivity state changes.
     let mut connectivity_stream = network_manager.receive_connectivity_changed().await;
@@ -98,17 +98,39 @@ async fn run_dbus_loop(tx: Sender<WifiConnection>) -> Result<(), Box<dyn Error>>
     let mut strength_stream: Option<PropertyStream<u8>> = None;
 
     loop {
-        // Wait for any WiFi connection update.
-        let new_active_ap = match &mut strength_stream {
-            Some(strength_stream) => tokio::select! {
-                new_active_ap = active_ap_stream.next() => new_active_ap,
-                _ = connectivity_stream.next() => None,
-                _ = strength_stream.next() => None,
+        // Extract optional streams, since async Rust sucks.
+        let strength_future = async {
+            match &mut strength_stream {
+                Some(strength_stream) => strength_stream.next().await,
+                None => None,
+            }
+        };
+        let active_ap_future = async {
+            match &mut wireless_device {
+                Some((_, active_ap_stream)) => active_ap_stream.next().await,
+                None => None,
+            }
+        };
+
+        let new_active_ap = tokio::select! {
+            // Wait for NetworkManager device changes.
+            Some(_) = device_added_stream.next() => {
+                wireless_device = active_wireless_device(&connection, &network_manager).await;
+                None
             },
-            None => tokio::select! {
-                new_active_ap = active_ap_stream.next() => new_active_ap,
-                _ = connectivity_stream.next() => None,
+            Some(_) = device_removed_stream.next() => {
+                wireless_device = active_wireless_device(&connection, &network_manager).await;
+                None
             },
+
+            // Wait for AP changes.
+            Some(new_active_ap) = active_ap_future => Some(new_active_ap),
+
+            // Wait for connectivity/signal quality changes.
+            Some(_) = connectivity_stream.next() => None,
+            Some(_) = strength_future => None,
+
+            else => continue,
         };
 
         // Handle active AP changes.
@@ -116,8 +138,17 @@ async fn run_dbus_loop(tx: Sender<WifiConnection>) -> Result<(), Box<dyn Error>>
             strength_stream = ap_strength_stream(&connection, new_active_ap).await.ok();
         }
 
+        // Get the active wireless device.
+        let wireless_device = match &wireless_device {
+            Some((wireless_device, _)) => wireless_device,
+            None => {
+                tx.send(WifiConnection::default())?;
+                continue;
+            },
+        };
+
         // Update connection status.
-        let wifi_connection = WifiConnection::new(&connection, &network_manager, &wireless_device)
+        let wifi_connection = WifiConnection::new(&connection, &network_manager, wireless_device)
             .await
             .unwrap_or_default();
         tx.send(wifi_connection)?;
@@ -135,22 +166,28 @@ async fn ap_strength_stream<'a>(
 }
 
 /// Get the active wireless device.
-async fn wireless_device<'a>(
+async fn active_wireless_device<'a>(
     connection: &'a Connection,
     network_manager: &'a NetworkManagerProxy<'a>,
-) -> Option<WirelessDeviceProxy<'a>> {
+) -> Option<(WirelessDeviceProxy<'a>, PropertyStream<'a, OwnedObjectPath>)> {
     // Get realized network devices.
     let device_paths = network_manager.get_devices().await.ok()?;
 
-    // Return the first wifi network device.
+    // Find the first wifi network device.
+    let mut active_wireless_device = None;
     for device_path in device_paths {
         let wireless_device = wireless_device_from_path(connection, device_path).await;
         if wireless_device.is_some() {
-            return wireless_device;
+            active_wireless_device = wireless_device;
+            break;
         }
     }
 
-    None
+    // Get stream for active AP changes.
+    let active_wireless_device = active_wireless_device?;
+    let active_ap_stream = active_wireless_device.receive_active_access_point_changed().await;
+
+    Some((active_wireless_device, active_ap_stream))
 }
 
 /// Try and convert a NetworkManager device path to a wireless device.
@@ -188,6 +225,14 @@ trait NetworkManager {
     /// periodically and by calling a CheckConnectivity() method.
     #[dbus_proxy(property)]
     fn connectivity(&self) -> zbus::Result<ConnectivityState>;
+
+    /// DeviceAdded signal
+    #[dbus_proxy(signal)]
+    fn device_added(&self, device_path: zbus::zvariant::ObjectPath<'_>) -> zbus::Result<()>;
+
+    /// DeviceRemoved signal
+    #[dbus_proxy(signal)]
+    fn device_removed(&self, device_path: zbus::zvariant::ObjectPath<'_>) -> zbus::Result<()>;
 }
 
 #[dbus_proxy(
