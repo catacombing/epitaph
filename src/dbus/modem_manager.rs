@@ -8,7 +8,7 @@ use tokio::runtime::Builder;
 use zbus::export::futures_util::stream::StreamExt;
 use zbus::fdo::ObjectManagerProxy;
 use zbus::zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Type};
-use zbus::{dbus_proxy, Connection};
+use zbus::{dbus_proxy, Connection, PropertyStream};
 
 /// Cellular connection status.
 #[derive(PartialEq, Eq, Default, Copy, Clone, Debug)]
@@ -90,52 +90,44 @@ async fn run_dbus_loop(tx: Sender<ModemConnection>) -> Result<(), Box<dyn Error>
     let mut modem_removed_stream = object_manager.receive_interfaces_removed().await?;
 
     // Initialize modem quality and connectivity streams.
-    let mut connectivity_stream = None;
-    let mut quality_stream = None;
-    if let Some(modem) = modems.get(0) {
-        connectivity_stream = Some(modem.receive_modem_state_changed().await);
-        quality_stream = Some(modem.receive_signal_quality_changed().await);
-    }
+    let mut modem_streams = primary_modem_streams(&modems).await;
 
     loop {
         // Extract optional streams, since async Rust sucks.
-        let connectivity_future = async {
-            match &mut connectivity_stream {
-                Some(stream) => stream.next().await,
-                None => None,
-            }
-        };
-        let quality_future = async {
-            match &mut quality_stream {
-                Some(stream) => stream.next().await,
+        let modem_future = async {
+            match &mut modem_streams {
+                Some((connectivity_stream, quality_stream)) => tokio::select! {
+                    _ = connectivity_stream.next() => Some(()),
+                    _ = quality_stream.next() => Some(()),
+                },
                 None => None,
             }
         };
 
         tokio::select! {
             // Wait for any connectivity/signal quality changes.
-            Some(_) = connectivity_future => (),
-            Some(_) = quality_future => (),
+            Some(_) = modem_future => (),
 
             // Wait for new/removed modems.
-            Some(added) = modem_added_stream.next() => {
-                if let Some(path) = added.path() {
-                    let modem = modem_from_path(&connection, path.into()).await;
-                    if let Ok(modem) = modem {
-                        modems.push(modem);
-                    }
-                }
+            Some(_) = modem_added_stream.next() => {
+                modems = active_modems(&connection, &object_manager).await;
+                modem_streams = primary_modem_streams(&modems).await;
             },
-            Some(removed) = modem_removed_stream.next() => {
-                modems.retain(|modem| Some(modem.path()) != removed.path().as_ref());
+            Some(_) = modem_removed_stream.next() => {
+                modems = active_modems(&connection, &object_manager).await;
+                modem_streams = primary_modem_streams(&modems).await;
             },
+
             else => continue,
         };
 
         // Get first available modem.
         let modem = match modems.get(0) {
             Some(modem) => modem,
-            None => continue,
+            None => {
+                tx.send(ModemConnection::default())?;
+                continue;
+            },
         };
 
         // Get modem's 3GPP interface.
@@ -143,6 +135,7 @@ async fn run_dbus_loop(tx: Sender<ModemConnection>) -> Result<(), Box<dyn Error>
             Ok(modem3gpp) => modem3gpp,
             Err(err) => {
                 eprintln!("Modem 3GPP interface missing: {err}");
+                tx.send(ModemConnection::default())?;
                 continue;
             },
         };
@@ -179,6 +172,18 @@ async fn active_modems<'a>(
     }
 
     modems
+}
+
+/// Get modem state/signal quality streams.
+async fn primary_modem_streams<'a>(
+    modems: &[ModemProxy<'a>],
+) -> Option<(PropertyStream<'a, i32>, PropertyStream<'a, (u32, bool)>)> {
+    let modem = modems.get(0)?;
+
+    let connectivity_stream = modem.receive_modem_state_changed().await;
+    let quality_stream = modem.receive_signal_quality_changed().await;
+
+    Some((connectivity_stream, quality_stream))
 }
 
 /// Try and convert a DBus device path to modem.
