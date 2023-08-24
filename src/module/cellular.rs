@@ -26,13 +26,21 @@ impl Cellular {
                 Event::Closed => return,
             };
 
-            let old_svg = state.modules.cellular.svg();
+            // Ignore updates that change nothing.
+            let module = &mut state.modules.cellular;
+            if connection == module.connection {
+                return;
+            }
+
+            let old_enabled = module.desired_enabled;
+            let old_svg = module.svg();
 
             // Update connection status.
-            state.modules.cellular.connection = connection;
+            module.desired_enabled = connection.enabled;
+            module.connection = connection;
 
             // Request redraw only if SVG changed.
-            if old_svg != state.modules.cellular.svg() {
+            if old_svg != state.modules.wifi.svg() || old_enabled != connection.enabled {
                 state.request_frame();
             }
         })?;

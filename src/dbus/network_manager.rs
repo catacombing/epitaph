@@ -55,7 +55,10 @@ pub fn set_enabled(enabled: bool) {
     let set_wifi_state = |enabled: bool| async move {
         let connection = Connection::system().await?;
         let network_manager = NetworkManagerProxy::new(&connection).await?;
-        network_manager.set_wireless_enabled(enabled).await
+        if let Err(err) = network_manager.set_wireless_enabled(enabled).await {
+            eprintln!("WiFi state change failed: {err}");
+        }
+        Ok::<(), zbus::Error>(())
     };
 
     // Spawn async executor for the WiFi update on a new thread.

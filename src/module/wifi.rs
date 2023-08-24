@@ -27,13 +27,21 @@ impl Wifi {
                 Event::Closed => return,
             };
 
-            let old_svg = state.modules.wifi.svg();
+            // Ignore updates that change nothing.
+            let module = &mut state.modules.wifi;
+            if connection == module.connection {
+                return;
+            }
+
+            let old_enabled = module.desired_enabled;
+            let old_svg = module.svg();
 
             // Update connection status.
-            state.modules.wifi.connection = connection;
+            module.desired_enabled = connection.enabled;
+            module.connection = connection;
 
             // Request redraw only if SVG changed.
-            if old_svg != state.modules.wifi.svg() {
+            if old_svg != state.modules.wifi.svg() || old_enabled != connection.enabled {
                 state.request_frame();
             }
         })?;
