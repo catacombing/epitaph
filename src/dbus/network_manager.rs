@@ -45,7 +45,10 @@ impl WifiConnection {
         let connectivity = network_manager.connectivity().await.ok()?;
         let connected = connectivity == ConnectivityState::Full;
 
-        Some(Self { strength, connected, enabled: true })
+        // Get enabled status.
+        let enabled = network_manager.wireless_enabled().await.ok()?;
+
+        Some(Self { strength, connected, enabled })
     }
 }
 

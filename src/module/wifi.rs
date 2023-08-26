@@ -46,7 +46,7 @@ impl Wifi {
             }
         })?;
 
-        Ok(Self { connection: WifiConnection::default(), desired_enabled: true })
+        Ok(Self { connection: WifiConnection::default(), desired_enabled: false })
     }
 }
 

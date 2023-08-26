@@ -45,7 +45,7 @@ impl Cellular {
             }
         })?;
 
-        Ok(Self { connection: ModemConnection::default(), desired_enabled: true })
+        Ok(Self { connection: ModemConnection::default(), desired_enabled: false })
     }
 }
 
