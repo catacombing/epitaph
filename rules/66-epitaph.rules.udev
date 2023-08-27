@@ -1,0 +1,7 @@
+# Grant group `catacomb` access to flashlight.
+ACTION=="add", SUBSYSTEM=="leds", KERNEL=="white:flash", RUN+="/usr/bin/chgrp catacomb /sys/class/leds/%k/brightness"
+ACTION=="add", SUBSYSTEM=="leds", KERNEL=="white:flash", RUN+="/usr/bin/chmod g+w /sys/class/leds/%k/brightness"
+
+# Grant group `catacomb` access to screen brightness.
+ACTION=="add", SUBSYSTEM=="backlight", KERNEL=="backlight", RUN+="/usr/bin/chgrp catacomb /sys/class/backlight/%k/brightness"
+ACTION=="add", SUBSYSTEM=="backlight", KERNEL=="backlight", RUN+="/usr/bin/chmod g+w /sys/class/backlight/%k/brightness"

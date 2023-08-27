@@ -1,0 +1,15 @@
+polkit.addRule(function(action, subject) {
+    // Grant group `catacomb` access to enable/disable WiFi.
+    if (action.id == "org.freedesktop.NetworkManager.enable-disable-wifi"
+        && subject.isInGroup("catacomb"))
+    {
+        return polkit.Result.YES;
+    }
+
+    // Grant group `catacomb` access to enable/disable Cellular.
+    if (action.id == "org.freedesktop.ModemManager1.Device.Control"
+        && subject.isInGroup("catacomb"))
+    {
+        return polkit.Result.YES;
+    }
+});
