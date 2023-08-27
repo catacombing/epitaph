@@ -7,7 +7,7 @@ use calloop::channel::{self, Channel, Sender};
 use tokio::runtime::Builder;
 use zbus::export::futures_util::stream::StreamExt;
 use zbus::fdo::ObjectManagerProxy;
-use zbus::zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Type};
+use zbus::zvariant::{OwnedObjectPath, OwnedValue, Type};
 use zbus::{dbus_proxy, Connection, PropertyStream};
 
 /// Cellular connection status.
@@ -33,7 +33,11 @@ impl ModemConnection {
         let registration_state = modem3gpp.registration_state().await.ok()?;
         let registered = registration_state > RegistrationState::Idle;
 
-        Some(Self { strength, registered, enabled: true })
+        // Get modem status.
+        let modem_state = modem.modem_state().await.ok()?;
+        let enabled = modem_state >= ModemState::Enabled;
+
+        Some(Self { strength, registered, enabled })
     }
 }
 
@@ -58,7 +62,7 @@ pub fn set_enabled(enabled: bool) {
         let modems = active_modems(&connection, &object_manager).await;
 
         // Set the state for each one.
-        for modem in modems {
+        for (modem, _) in modems {
             if let Err(err) = modem.enable(enabled).await {
                 eprintln!("Modem state change failed: {err}");
             }
@@ -96,9 +100,12 @@ async fn run_dbus_loop(tx: Sender<ModemConnection>) -> Result<(), Box<dyn Error>
         // Extract optional streams, since async Rust sucks.
         let modem_future = async {
             match &mut modem_streams {
-                Some((connectivity_stream, quality_stream)) => tokio::select! {
-                    _ = connectivity_stream.next() => Some(()),
-                    _ = quality_stream.next() => Some(()),
+                Some((registration_stream, connectivity_stream, quality_stream)) => {
+                    tokio::select! {
+                        _ = registration_stream.next() => Some(()),
+                        _ = connectivity_stream.next() => Some(()),
+                        _ = quality_stream.next() => Some(()),
+                    }
                 },
                 None => None,
             }
@@ -122,7 +129,7 @@ async fn run_dbus_loop(tx: Sender<ModemConnection>) -> Result<(), Box<dyn Error>
         };
 
         // Get first available modem.
-        let modem = match modems.get(0) {
+        let (modem, modem3gpp) = match modems.get(0) {
             Some(modem) => modem,
             None => {
                 tx.send(ModemConnection::default())?;
@@ -130,18 +137,8 @@ async fn run_dbus_loop(tx: Sender<ModemConnection>) -> Result<(), Box<dyn Error>
             },
         };
 
-        // Get modem's 3GPP interface.
-        let modem3gpp = match modem3gpp_from_path(&connection, modem.path().into()).await {
-            Ok(modem3gpp) => modem3gpp,
-            Err(err) => {
-                eprintln!("Modem 3GPP interface missing: {err}");
-                tx.send(ModemConnection::default())?;
-                continue;
-            },
-        };
-
         // Update connection status.
-        let modem_connection = ModemConnection::new(modem, &modem3gpp).await.unwrap_or_default();
+        let modem_connection = ModemConnection::new(modem, modem3gpp).await.unwrap_or_default();
         tx.send(modem_connection)?;
     }
 }
@@ -159,14 +156,19 @@ async fn object_manager(connection: &Connection) -> zbus::Result<ObjectManagerPr
 async fn active_modems<'a>(
     connection: &'a Connection,
     object_manager: &'a ObjectManagerProxy<'a>,
-) -> Vec<ModemProxy<'a>> {
+) -> Vec<(ModemProxy<'a>, Modem3gppProxy<'a>)> {
     let managed_objects = object_manager.get_managed_objects().await;
 
     let mut modems = Vec::new();
     for (path, _) in managed_objects.into_iter().flatten() {
         if path.starts_with("/org/freedesktop/ModemManager1/Modem/") {
-            if let Ok(modem) = modem_from_path(connection, path).await {
-                modems.push(modem);
+            let (modem, modem3gpp) = tokio::join!(
+                modem_from_path(connection, path.clone()),
+                modem3gpp_from_path(connection, path),
+            );
+
+            if let (Ok(modem), Ok(modem3gpp)) = (modem, modem3gpp) {
+                modems.push((modem, modem3gpp));
             }
         }
     }
@@ -176,14 +178,19 @@ async fn active_modems<'a>(
 
 /// Get modem state/signal quality streams.
 async fn primary_modem_streams<'a>(
-    modems: &[ModemProxy<'a>],
-) -> Option<(PropertyStream<'a, i32>, PropertyStream<'a, (u32, bool)>)> {
-    let modem = modems.get(0)?;
+    modems: &[(ModemProxy<'a>, Modem3gppProxy<'a>)],
+) -> Option<(
+    PropertyStream<'a, RegistrationState>,
+    PropertyStream<'a, ModemState>,
+    PropertyStream<'a, (u32, bool)>,
+)> {
+    let (modem, modem3gpp) = modems.get(0)?;
 
+    let registration_stream = modem3gpp.receive_registration_state_changed().await;
     let connectivity_stream = modem.receive_modem_state_changed().await;
     let quality_stream = modem.receive_signal_quality_changed().await;
 
-    Some((connectivity_stream, quality_stream))
+    Some((registration_stream, connectivity_stream, quality_stream))
 }
 
 /// Try and convert a DBus device path to modem.
@@ -195,10 +202,10 @@ async fn modem_from_path(
 }
 
 /// Try and convert a DBus device path to 3gpp modem.
-async fn modem3gpp_from_path<'a>(
-    connection: &'a Connection,
-    device_path: ObjectPath<'a>,
-) -> zbus::Result<Modem3gppProxy<'a>> {
+async fn modem3gpp_from_path(
+    connection: &Connection,
+    device_path: OwnedObjectPath,
+) -> zbus::Result<Modem3gppProxy> {
     Modem3gppProxy::builder(connection).path(device_path)?.build().await
 }
 
@@ -539,7 +546,7 @@ trait Modem {
 
     /// PowerState property
     #[dbus_proxy(property)]
-    fn power_state(&self) -> zbus::Result<u32>;
+    fn power_state(&self) -> zbus::Result<PowerState>;
 
     /// PrimaryPort property
     #[dbus_proxy(property)]
@@ -567,7 +574,7 @@ trait Modem {
 
     /// State property
     #[dbus_proxy(property, name = "State")]
-    fn modem_state(&self) -> zbus::Result<i32>;
+    fn modem_state(&self) -> zbus::Result<ModemState>;
 
     /// StateFailedReason property
     #[dbus_proxy(property)]
@@ -884,4 +891,54 @@ pub enum RegistrationState {
     // Attached for access to Restricted Local Operator Services (applicable only when on LTE).
     // Since 1.14.
     AttachedRlos = 11,
+}
+
+/// Power state of the modem.
+#[derive(Type, OwnedValue, PartialEq, Debug, PartialOrd)]
+#[repr(u32)]
+pub enum PowerState {
+    // Unknown power state.
+    Unknown = 0,
+    // Off.
+    Off = 1,
+    // Low-power mode.
+    Low = 2,
+    /// Full power mode.
+    On = 3,
+}
+
+/// Enumeration of possible modem states.
+#[derive(Type, OwnedValue, PartialEq, Debug, PartialOrd)]
+#[repr(i32)]
+pub enum ModemState {
+    /// The modem is unusable.
+    Failed = 0,
+    /// State unknown or not reportable.
+    Unknown = 1,
+    /// The modem is currently being initialized.
+    Initializing = 2,
+    /// The modem needs to be unlocked.
+    Locked = 3,
+    /// The modem is not enabled and is powered down.
+    Disabled = 4,
+    /// The modem is currently transitioning to the [Self::Disabled] state.
+    Disabling = 5,
+    /// The modem is currently transitioning to the [Self::Enabled] state.
+    Enabling = 6,
+    /// The modem is enabled and powered on but not registered with a network
+    /// provider and not available for data connections.
+    Enabled = 7,
+    /// The modem is searching for a network provider to register with.
+    Searching = 8,
+    /// The modem is registered with a network provider, and data connections
+    /// and messaging may be available for use.
+    Registered = 9,
+    /// The modem is disconnecting and deactivating the last active packet data
+    /// bearer. This state will not be entered if more than one packet data
+    /// bearer is active and one of the active bearers is deactivated.
+    Disconnecting = 10,
+    /// The modem is activating and connecting the first packet data bearer.
+    /// Subsequent bearer activations when another bearer is already active do
+    /// not cause this state to be entered.
+    Connecting = 11,
 }
