@@ -63,8 +63,26 @@ pub fn set_enabled(enabled: bool) {
 
         // Set the state for each one.
         for (modem, _) in modems {
+            // Ensure modem's power state is `On` before enabling it.
+            if enabled {
+                if let Err(err) = modem.set_power_state(PowerState::On as u32).await {
+                    eprintln!("Could not power modem on: {err}");
+                }
+            }
+
+            // Set the modem state.
             if let Err(err) = modem.enable(enabled).await {
                 eprintln!("Modem state change failed: {err}");
+            }
+
+            // Set modem to lowest powerstate it can recover from.
+            //
+            // Setting it to `PowerState::Off` will prevent turning it back on in the
+            // future.
+            if !enabled {
+                if let Err(err) = modem.set_power_state(PowerState::Low as u32).await {
+                    eprintln!("Could not power modem off: {err}");
+                }
             }
         }
 
