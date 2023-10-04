@@ -51,7 +51,10 @@ impl Module for Brightness {
 
 impl Slider for Brightness {
     /// Set device backlight brightness.
-    fn set_value(&mut self, value: f64) -> Result<()> {
+    fn set_value(&mut self, mut value: f64) -> Result<()> {
+        // Convert to nearest multiple of .05.
+        value = (value * 20.).round() / 20.;
+
         // Get all backlight devices.
         let mut enumerator = Enumerator::new()?;
         enumerator.match_subsystem("backlight")?;
