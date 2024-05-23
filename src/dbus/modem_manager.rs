@@ -147,7 +147,7 @@ async fn run_dbus_loop(tx: Sender<ModemConnection>) -> Result<(), Box<dyn Error>
         };
 
         // Get first available modem.
-        let (modem, modem3gpp) = match modems.get(0) {
+        let (modem, modem3gpp) = match modems.first() {
             Some(modem) => modem,
             None => {
                 tx.send(ModemConnection::default())?;
@@ -202,7 +202,7 @@ async fn primary_modem_streams<'a>(
     PropertyStream<'a, ModemState>,
     PropertyStream<'a, (u32, bool)>,
 )> {
-    let (modem, modem3gpp) = modems.get(0)?;
+    let (modem, modem3gpp) = modems.first()?;
 
     let registration_stream = modem3gpp.receive_registration_state_changed().await;
     let connectivity_stream = modem.receive_modem_state_changed().await;

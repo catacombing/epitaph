@@ -9,8 +9,8 @@ use crossfont::{
     BitmapBuffer, FontDesc, FontKey, GlyphKey, Metrics, Rasterize, RasterizedGlyph, Rasterizer,
     Size as FontSize, Slant, Style, Weight,
 };
-use tiny_skia::{Pixmap, Transform};
-use usvg::{FitTo, Options, Tree};
+use resvg::tiny_skia::{Pixmap, Transform};
+use resvg::usvg::{Options, Tree};
 
 use crate::gl::types::GLuint;
 use crate::renderer::Texture;
@@ -158,12 +158,12 @@ impl GlRasterizer {
             .ok_or_else(|| format!("Invalid SVG buffer size: {width}x{height}"))?;
 
         // Compute transform for height.
-        let transform = Transform::from_scale(1., (y_scale / x_scale) as f32);
+        let tree = Tree::from_str(svg.content(), &Options::default())?;
+        let tree_scale = width as f32 / tree.size().width();
+        let transform = Transform::from_scale(tree_scale, (y_scale / x_scale) as f32 * tree_scale);
 
         // Render SVG into buffer.
-        let tree = Tree::from_str(svg.content(), &Options::default().to_ref())?;
-        resvg::render(&tree, FitTo::Width(width), transform, pixmap.as_mut())
-            .ok_or_else(|| format!("Invalid SVG target size: {width}x{height}"))?;
+        resvg::render(&tree, transform, &mut pixmap.as_mut());
 
         // Load SVG into atlas.
         let atlas_entry = AtlasEntry::new_svg(pixmap.take(), width, height);

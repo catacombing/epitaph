@@ -12,22 +12,20 @@ edition = "2021"
 panic = 'abort'
 
 [dependencies]
+calloop = "0.10.1"
 catacomb_ipc = { git = "https://github.com/chrisduerr/catacomb", rev = "a75303facc8e40258bdedcaf3dcce38f3bcc5d5d" }
+chrono = { version = "0.4.20", default-features = false, features = ["clock"] }
+crossfont = "0.5.0"
 glutin = { version = "0.30.3", default-features = false, features = ["egl", "wayland"] }
+libc = "0.2.127"
 raw-window-handle = "0.5.0"
+resvg = { version = "0.41.0", default-features = false }
 smithay-client-toolkit = { git = "https://github.com/smithay/client-toolkit" }
+tokio = { version = "1.26.0", features = ["macros"] }
+udev = "0.6.3"
 wayland-backend = { version = "0.1.0", features = ["client_system"] }
 wayland-protocols = { version = "0.30.0", features = ["staging"] }
-calloop = "0.10.1"
-crossfont = "0.5.0"
-chrono = { version = "0.4.20", default-features = false, features = ["clock"] }
-resvg = { version = "0.23.0", default-features = false }
-usvg = { version = "0.23.0", default-features = false }
-tiny-skia = "0.6.0"
-libc = "0.2.127"
-udev = "0.6.3"
 zbus = { version = "3.11.0", default-features = false, features = ["tokio"] }
-tokio = { version = "1.26.0", features = ["macros"] }
 
 [build-dependencies]
 gl_generator = "0.14.0"
