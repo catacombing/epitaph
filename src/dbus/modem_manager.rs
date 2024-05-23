@@ -8,7 +8,7 @@ use tokio::runtime::Builder;
 use zbus::export::futures_util::stream::StreamExt;
 use zbus::fdo::ObjectManagerProxy;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Type};
-use zbus::{dbus_proxy, Connection, PropertyStream};
+use zbus::{proxy, Connection, PropertyStream};
 
 /// Cellular connection status.
 #[derive(PartialEq, Eq, Default, Copy, Clone, Debug)]
@@ -227,7 +227,7 @@ async fn modem3gpp_from_path(
     Modem3gppProxy::builder(connection).path(device_path)?.build().await
 }
 
-#[dbus_proxy(
+#[proxy(
     interface = "org.freedesktop.ModemManager1",
     default_service = "org.freedesktop.ModemManager1",
     default_path = "/org/freedesktop/ModemManager1"
@@ -249,11 +249,11 @@ trait ModemManager1 {
     fn set_logging(&self, level: &str) -> zbus::Result<()>;
 
     /// Version property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn version(&self) -> zbus::Result<String>;
 }
 
-#[dbus_proxy(
+#[proxy(
     interface = "org.freedesktop.ModemManager1.Modem.Location",
     default_service = "org.freedesktop.ModemManager1",
     default_path = "/org/freedesktop/ModemManager1/Modem/0"
@@ -277,39 +277,39 @@ trait Location {
     fn setup(&self, sources: u32, signal_location: bool) -> zbus::Result<()>;
 
     /// AssistanceDataServers property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn assistance_data_servers(&self) -> zbus::Result<Vec<String>>;
 
     /// Capabilities property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn capabilities(&self) -> zbus::Result<u32>;
 
     /// Enabled property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn enabled(&self) -> zbus::Result<u32>;
 
     /// GpsRefreshRate property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn gps_refresh_rate(&self) -> zbus::Result<u32>;
 
     /// Location property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn location(&self) -> zbus::Result<std::collections::HashMap<u32, zbus::zvariant::OwnedValue>>;
 
     /// SignalsLocation property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn signals_location(&self) -> zbus::Result<bool>;
 
     /// SuplServer property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn supl_server(&self) -> zbus::Result<String>;
 
     /// SupportedAssistanceData property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn supported_assistance_data(&self) -> zbus::Result<u32>;
 }
 
-#[dbus_proxy(
+#[proxy(
     interface = "org.freedesktop.ModemManager1.Modem.Signal",
     default_service = "org.freedesktop.ModemManager1",
     default_path = "/org/freedesktop/ModemManager1/Modem/0"
@@ -325,43 +325,43 @@ trait Signal {
     ) -> zbus::Result<()>;
 
     /// Cdma property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn cdma(&self) -> zbus::Result<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>;
 
     /// ErrorRateThreshold property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn error_rate_threshold(&self) -> zbus::Result<bool>;
 
     /// Evdo property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn evdo(&self) -> zbus::Result<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>;
 
     /// Gsm property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn gsm(&self) -> zbus::Result<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>;
 
     /// Lte property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn lte(&self) -> zbus::Result<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>;
 
     /// Nr5g property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn nr5g(&self) -> zbus::Result<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>;
 
     /// Rate property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn rate(&self) -> zbus::Result<u32>;
 
     /// RssiThreshold property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn rssi_threshold(&self) -> zbus::Result<u32>;
 
     /// Umts property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn umts(&self) -> zbus::Result<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>;
 }
 
-#[dbus_proxy(
+#[proxy(
     interface = "org.freedesktop.ModemManager1.Modem.Modem3gpp.Ussd",
     default_service = "org.freedesktop.ModemManager1",
     default_path = "/org/freedesktop/ModemManager1/Modem/0"
@@ -377,19 +377,19 @@ trait Ussd {
     fn respond(&self, response: &str) -> zbus::Result<String>;
 
     /// NetworkNotification property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn network_notification(&self) -> zbus::Result<String>;
 
     /// NetworkRequest property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn network_request(&self) -> zbus::Result<String>;
 
     /// State property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn state(&self) -> zbus::Result<u32>;
 }
 
-#[dbus_proxy(
+#[proxy(
     interface = "org.freedesktop.ModemManager1.Modem.Messaging",
     default_service = "org.freedesktop.ModemManager1",
     default_path = "/org/freedesktop/ModemManager1/Modem/0"
@@ -408,27 +408,27 @@ trait Messaging {
     fn list(&self) -> zbus::Result<Vec<zbus::zvariant::OwnedObjectPath>>;
 
     /// Added signal
-    #[dbus_proxy(signal)]
+    #[zbus(signal)]
     fn added(&self, path: zbus::zvariant::ObjectPath<'_>, received: bool) -> zbus::Result<()>;
 
     /// Deleted signal
-    #[dbus_proxy(signal)]
+    #[zbus(signal)]
     fn deleted(&self, path: zbus::zvariant::ObjectPath<'_>) -> zbus::Result<()>;
 
     /// DefaultStorage property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn default_storage(&self) -> zbus::Result<u32>;
 
     /// Messages property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn messages(&self) -> zbus::Result<Vec<zbus::zvariant::OwnedObjectPath>>;
 
     /// SupportedStorages property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn supported_storages(&self) -> zbus::Result<Vec<u32>>;
 }
 
-#[dbus_proxy(
+#[proxy(
     interface = "org.freedesktop.ModemManager1.Modem",
     default_service = "org.freedesktop.ModemManager1",
     default_path = "/org/freedesktop/ModemManager1/Modem/0"
@@ -479,151 +479,151 @@ trait Modem {
     fn set_primary_sim_slot(&self, sim_slot: u32) -> zbus::Result<()>;
 
     /// StateChanged signal
-    #[dbus_proxy(signal)]
+    #[zbus(signal)]
     fn state_changed(&self, old: i32, new: i32, reason: u32) -> zbus::Result<()>;
 
     /// AccessTechnologies property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn access_technologies(&self) -> zbus::Result<u32>;
 
     /// Bearers property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn bearers(&self) -> zbus::Result<Vec<zbus::zvariant::OwnedObjectPath>>;
 
     /// CarrierConfiguration property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn carrier_configuration(&self) -> zbus::Result<String>;
 
     /// CarrierConfigurationRevision property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn carrier_configuration_revision(&self) -> zbus::Result<String>;
 
     /// CurrentBands property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn current_bands(&self) -> zbus::Result<Vec<u32>>;
 
     /// CurrentCapabilities property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn current_capabilities(&self) -> zbus::Result<u32>;
 
     /// CurrentModes property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn current_modes(&self) -> zbus::Result<(u32, u32)>;
 
     /// Device property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn device(&self) -> zbus::Result<String>;
 
     /// DeviceIdentifier property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn device_identifier(&self) -> zbus::Result<String>;
 
     /// Drivers property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn drivers(&self) -> zbus::Result<Vec<String>>;
 
     /// EquipmentIdentifier property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn equipment_identifier(&self) -> zbus::Result<String>;
 
     /// HardwareRevision property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn hardware_revision(&self) -> zbus::Result<String>;
 
     /// Manufacturer property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn manufacturer(&self) -> zbus::Result<String>;
 
     /// MaxActiveBearers property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn max_active_bearers(&self) -> zbus::Result<u32>;
 
     /// MaxActiveMultiplexedBearers property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn max_active_multiplexed_bearers(&self) -> zbus::Result<u32>;
 
     /// MaxBearers property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn max_bearers(&self) -> zbus::Result<u32>;
 
     /// Model property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn model(&self) -> zbus::Result<String>;
 
     /// OwnNumbers property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn own_numbers(&self) -> zbus::Result<Vec<String>>;
 
     /// Plugin property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn plugin(&self) -> zbus::Result<String>;
 
     /// Ports property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn ports(&self) -> zbus::Result<Vec<(String, u32)>>;
 
     /// PowerState property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn power_state(&self) -> zbus::Result<PowerState>;
 
     /// PrimaryPort property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn primary_port(&self) -> zbus::Result<String>;
 
     /// PrimarySimSlot property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn primary_sim_slot(&self) -> zbus::Result<u32>;
 
     /// Revision property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn revision(&self) -> zbus::Result<String>;
 
     /// SignalQuality property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn signal_quality(&self) -> zbus::Result<(u32, bool)>;
 
     /// Sim property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn sim(&self) -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
 
     /// SimSlots property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn sim_slots(&self) -> zbus::Result<Vec<zbus::zvariant::OwnedObjectPath>>;
 
     /// State property
-    #[dbus_proxy(property, name = "State")]
+    #[zbus(property, name = "State")]
     fn modem_state(&self) -> zbus::Result<ModemState>;
 
     /// StateFailedReason property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn state_failed_reason(&self) -> zbus::Result<u32>;
 
     /// SupportedBands property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn supported_bands(&self) -> zbus::Result<Vec<u32>>;
 
     /// SupportedCapabilities property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn supported_capabilities(&self) -> zbus::Result<Vec<u32>>;
 
     /// SupportedIpFamilies property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn supported_ip_families(&self) -> zbus::Result<u32>;
 
     /// SupportedModes property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn supported_modes(&self) -> zbus::Result<Vec<(u32, u32)>>;
 
     /// UnlockRequired property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn unlock_required(&self) -> zbus::Result<u32>;
 
     /// UnlockRetries property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn unlock_retries(&self) -> zbus::Result<std::collections::HashMap<u32, u32>>;
 }
 
-#[dbus_proxy(
+#[proxy(
     interface = "org.freedesktop.ModemManager1.Modem.Time",
     default_service = "org.freedesktop.ModemManager1",
     default_path = "/org/freedesktop/ModemManager1/Modem/0"
@@ -633,17 +633,17 @@ trait Time {
     fn get_network_time(&self) -> zbus::Result<String>;
 
     /// NetworkTimeChanged signal
-    #[dbus_proxy(signal)]
+    #[zbus(signal)]
     fn network_time_changed(&self, time: &str) -> zbus::Result<()>;
 
     /// NetworkTimezone property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn network_timezone(
         &self,
     ) -> zbus::Result<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>;
 }
 
-#[dbus_proxy(
+#[proxy(
     interface = "org.freedesktop.ModemManager1.Modem.Firmware",
     default_service = "org.freedesktop.ModemManager1",
     default_path = "/org/freedesktop/ModemManager1/Modem/0"
@@ -658,13 +658,13 @@ trait Firmware {
     fn select(&self, uniqueid: &str) -> zbus::Result<()>;
 
     /// UpdateSettings property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn update_settings(
         &self,
     ) -> zbus::Result<(u32, std::collections::HashMap<String, zbus::zvariant::OwnedValue>)>;
 }
 
-#[dbus_proxy(
+#[proxy(
     interface = "org.freedesktop.ModemManager1.Modem.Modem3gpp.ProfileManager",
     default_service = "org.freedesktop.ModemManager1",
     default_path = "/org/freedesktop/ModemManager1/Modem/0"
@@ -688,15 +688,15 @@ trait ProfileManager {
     ) -> zbus::Result<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>;
 
     /// Updated signal
-    #[dbus_proxy(signal)]
+    #[zbus(signal)]
     fn updated(&self) -> zbus::Result<()>;
 
     /// IndexField property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn index_field(&self) -> zbus::Result<String>;
 }
 
-#[dbus_proxy(
+#[proxy(
     interface = "org.freedesktop.ModemManager1.Modem.Sar",
     default_service = "org.freedesktop.ModemManager1",
     default_path = "/org/freedesktop/ModemManager1/Modem/0"
@@ -709,15 +709,15 @@ trait Sar {
     fn set_power_level(&self, level: u32) -> zbus::Result<()>;
 
     /// PowerLevel property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn power_level(&self) -> zbus::Result<u32>;
 
     /// State property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn state(&self) -> zbus::Result<bool>;
 }
 
-#[dbus_proxy(
+#[proxy(
     interface = "org.freedesktop.ModemManager1.Modem.Simple",
     default_service = "org.freedesktop.ModemManager1",
     default_path = "/org/freedesktop/ModemManager1/Modem/0"
@@ -738,7 +738,7 @@ trait Simple {
     ) -> zbus::Result<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>;
 }
 
-#[dbus_proxy(
+#[proxy(
     interface = "org.freedesktop.ModemManager1.Modem.Modem3gpp",
     default_service = "org.freedesktop.ModemManager1",
     default_path = "/org/freedesktop/ModemManager1/Modem/0"
@@ -774,59 +774,59 @@ trait Modem3gpp {
     fn set_packet_service_state(&self, state: u32) -> zbus::Result<()>;
 
     /// EnabledFacilityLocks property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn enabled_facility_locks(&self) -> zbus::Result<u32>;
 
     /// EpsUeModeOperation property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn eps_ue_mode_operation(&self) -> zbus::Result<u32>;
 
     /// Imei property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn imei(&self) -> zbus::Result<String>;
 
     /// InitialEpsBearer property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn initial_eps_bearer(&self) -> zbus::Result<zbus::zvariant::OwnedObjectPath>;
 
     /// InitialEpsBearerSettings property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn initial_eps_bearer_settings(
         &self,
     ) -> zbus::Result<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>;
 
     /// Nr5gRegistrationSettings property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn nr5g_registration_settings(
         &self,
     ) -> zbus::Result<std::collections::HashMap<String, zbus::zvariant::OwnedValue>>;
 
     /// OperatorCode property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn operator_code(&self) -> zbus::Result<String>;
 
     /// OperatorName property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn operator_name(&self) -> zbus::Result<String>;
 
     /// PacketServiceState property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn packet_service_state(&self) -> zbus::Result<u32>;
 
     /// Pco property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn pco(&self) -> zbus::Result<Vec<(u32, bool, Vec<u8>)>>;
 
     /// RegistrationState property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn registration_state(&self) -> zbus::Result<RegistrationState>;
 
     /// SubscriptionState property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn subscription_state(&self) -> zbus::Result<u32>;
 }
 
-#[dbus_proxy(
+#[proxy(
     interface = "org.freedesktop.ModemManager1.Modem.Voice",
     default_service = "org.freedesktop.ModemManager1",
     default_path = "/org/freedesktop/ModemManager1/Modem/0"
@@ -863,19 +863,19 @@ trait Voice {
     fn transfer(&self) -> zbus::Result<()>;
 
     /// CallAdded signal
-    #[dbus_proxy(signal)]
+    #[zbus(signal)]
     fn call_added(&self, path: zbus::zvariant::ObjectPath<'_>) -> zbus::Result<()>;
 
     /// CallDeleted signal
-    #[dbus_proxy(signal)]
+    #[zbus(signal)]
     fn call_deleted(&self, path: zbus::zvariant::ObjectPath<'_>) -> zbus::Result<()>;
 
     /// Calls property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn calls(&self) -> zbus::Result<Vec<zbus::zvariant::OwnedObjectPath>>;
 
     /// EmergencyOnly property
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn emergency_only(&self) -> zbus::Result<bool>;
 }
 

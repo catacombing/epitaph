@@ -435,8 +435,8 @@ impl Shader {
 /// OpenGL texture.
 pub struct Texture {
     pub id: GLuint,
-    pub width: i32,
-    pub height: i32,
+    pub _width: i32,
+    pub _height: i32,
 }
 
 impl Texture {
@@ -465,7 +465,7 @@ impl Texture {
             gl::BindTexture(gl::TEXTURE_2D, 0);
         }
 
-        Self { id, width, height }
+        Self { id, _width: width, _height: height }
     }
 
     /// Upload buffer to texture.

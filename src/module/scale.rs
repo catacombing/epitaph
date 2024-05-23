@@ -39,7 +39,8 @@ impl Slider for Scale {
     fn on_touch_up(&mut self) -> Result<()> {
         // Update Catacomb's scale.
         let msg = IpcMessage::Scale { scale: WindowScale::Fixed(self.scale), app_id: None };
-        catacomb_ipc::send_message(&msg)
+        catacomb_ipc::send_message(&msg)?;
+        Ok(())
     }
 
     fn get_value(&self) -> f64 {

@@ -7,7 +7,7 @@ use calloop::channel::{self, Channel, Sender};
 use tokio::runtime::Builder;
 use zbus::export::futures_util::stream::StreamExt;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Type};
-use zbus::{dbus_proxy, Connection, PropertyChanged, PropertyStream};
+use zbus::{proxy, Connection, PropertyChanged, PropertyStream};
 
 /// Wifi connection quality.
 #[derive(PartialEq, Eq, Default, Copy, Clone, Debug)]
@@ -213,76 +213,76 @@ async fn wireless_device_from_path(
     WirelessDeviceProxy::builder(connection).path(device_path).ok()?.build().await.ok()
 }
 
-#[dbus_proxy(assume_defaults = true)]
+#[proxy(assume_defaults = true)]
 trait NetworkManager {
     /// Get the list of realized network devices.
     fn get_devices(&self) -> zbus::Result<Vec<OwnedObjectPath>>;
 
     /// Indicates if wireless is currently enabled or not.
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn wireless_enabled(&self) -> zbus::Result<bool>;
 
     /// Set if wireless is currently enabled or not.
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn set_wireless_enabled(&self, enabled: bool) -> zbus::Result<()>;
 
     /// The result of the last connectivity check. The connectivity check is
     /// triggered automatically when a default connection becomes available,
     /// periodically and by calling a CheckConnectivity() method.
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn connectivity(&self) -> zbus::Result<ConnectivityState>;
 
     /// DeviceAdded signal
-    #[dbus_proxy(signal)]
+    #[zbus(signal)]
     fn device_added(&self, device_path: zbus::zvariant::ObjectPath<'_>) -> zbus::Result<()>;
 
     /// DeviceRemoved signal
-    #[dbus_proxy(signal)]
+    #[zbus(signal)]
     fn device_removed(&self, device_path: zbus::zvariant::ObjectPath<'_>) -> zbus::Result<()>;
 }
 
-#[dbus_proxy(
+#[proxy(
     interface = "org.freedesktop.NetworkManager.Device",
     default_service = "org.freedesktop.NetworkManager",
     default_path = "/org/freedesktop/NetworkManager/Device"
 )]
 trait Device {
     /// The general type of the network device; ie Ethernet, Wi-Fi, etc.
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn device_type(&self) -> zbus::Result<DeviceType>;
 }
 
-#[dbus_proxy(
+#[proxy(
     interface = "org.freedesktop.NetworkManager.Device.Wireless",
     default_service = "org.freedesktop.NetworkManager",
     default_path = "/org/freedesktop/NetworkManager/Device/Wireless"
 )]
 trait WirelessDevice {
     /// Object path of the access point currently used by the wireless device.
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn active_access_point(&self) -> zbus::Result<OwnedObjectPath>;
 }
 
-#[dbus_proxy(
+#[proxy(
     interface = "org.freedesktop.NetworkManager.AccessPoint",
     default_service = "org.freedesktop.NetworkManager",
     default_path = "/org/freedesktop/NetworkManager/AccessPoint"
 )]
 trait AccessPoint {
     /// The Service Set Identifier identifying the access point.
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn ssid(&self) -> zbus::Result<Vec<u8>>;
 
     /// The radio channel frequency in use by the access point, in MHz.
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn frequency(&self) -> zbus::Result<u32>;
 
     /// The hardware address (BSSID) of the access point.
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn hw_address(&self) -> zbus::Result<String>;
 
     /// The current signal quality of the access point, in percent.
-    #[dbus_proxy(property)]
+    #[zbus(property)]
     fn strength(&self) -> zbus::Result<u8>;
 }
 
