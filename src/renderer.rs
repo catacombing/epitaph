@@ -4,6 +4,7 @@ use std::num::NonZeroU32;
 use std::ops::Deref;
 use std::{mem, ptr};
 
+use crossfont::Size as FontSize;
 use glutin::api::egl::context::{NotCurrentContext, PossiblyCurrentContext};
 use glutin::api::egl::surface::Surface;
 use glutin::prelude::*;
@@ -18,7 +19,7 @@ use crate::{gl, Result, Size};
 const FONT: &str = "Sans";
 
 /// Default font size.
-const FONT_SIZE: f32 = 6.;
+const FONT_SIZE: f32 = 12.;
 
 /// Maximum items to be drawn in a batch.
 ///
@@ -55,10 +56,12 @@ impl Renderer {
             gl::ClearColor(0.1, 0.1, 0.1, 1.0);
             gl::Enable(gl::BLEND);
 
+            let font_size = FontSize::new(FONT_SIZE);
+
             Ok(Renderer {
                 scale_factor,
                 egl_context,
-                rasterizer: GlRasterizer::new(FONT, FONT_SIZE, scale_factor)?,
+                rasterizer: GlRasterizer::new(FONT, font_size, scale_factor)?,
                 text_batcher: Default::default(),
                 rect_batcher: Default::default(),
                 egl_surface: Default::default(),

@@ -48,7 +48,7 @@ impl GlRasterizer {
         let size = size.into();
 
         // Create FreeType rasterizer.
-        let mut rasterizer = Rasterizer::new(1.)?;
+        let mut rasterizer = Rasterizer::new()?;
 
         // Load font at the requested size.
         let font = Self::load_font(&mut rasterizer, &font_name, size, scale_factor)?;
@@ -198,12 +198,12 @@ impl GlRasterizer {
     ) -> Result<FontKey> {
         let font_style = Style::Description { slant: Slant::Normal, weight: Weight::Normal };
         let font_desc = FontDesc::new(font_name, font_style);
-        Ok(rasterizer.load_font(&font_desc, size * scale_factor as f32)?)
+        Ok(rasterizer.load_font(&font_desc, size.scale(scale_factor as f32))?)
     }
 
     /// Scaled font size.
     fn font_size(&self) -> FontSize {
-        self.size * self.scale_factor as f32
+        self.size.scale(self.scale_factor as f32)
     }
 }
 
