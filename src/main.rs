@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use calloop::timer::{TimeoutAction, Timer};
 use calloop::{EventLoop, LoopHandle};
+use calloop_wayland_source::WaylandSource;
 use glutin::api::egl::display::Display;
 use glutin::config::ConfigTemplateBuilder;
 use glutin::prelude::*;
@@ -14,13 +15,11 @@ use raw_window_handle::{RawDisplayHandle, WaylandDisplayHandle};
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState};
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
 use smithay_client_toolkit::reexports::client::globals::{self, GlobalList};
-use smithay_client_toolkit::reexports::client::protocol::wl_output::WlOutput;
+use smithay_client_toolkit::reexports::client::protocol::wl_output::{Transform, WlOutput};
 use smithay_client_toolkit::reexports::client::protocol::wl_seat::WlSeat;
 use smithay_client_toolkit::reexports::client::protocol::wl_surface::WlSurface;
 use smithay_client_toolkit::reexports::client::protocol::wl_touch::WlTouch;
-use smithay_client_toolkit::reexports::client::{
-    Connection, EventQueue, Proxy, QueueHandle, WaylandSource,
-};
+use smithay_client_toolkit::reexports::client::{Connection, EventQueue, Proxy, QueueHandle};
 use smithay_client_toolkit::registry::{ProvidesRegistryState, RegistryState};
 use smithay_client_toolkit::seat::touch::TouchHandler;
 use smithay_client_toolkit::seat::{Capability, SeatHandler, SeatState};
@@ -96,7 +95,7 @@ fn main() {
         State::new(&connection, &globals, &queue, event_loop.handle()).expect("state setup");
 
     // Insert wayland source into calloop loop.
-    let wayland_source = WaylandSource::new(queue).expect("wayland source creation");
+    let wayland_source = WaylandSource::new(connection, queue);
     wayland_source.insert(event_loop.handle()).expect("wayland source registration");
 
     // Start event loop.
@@ -256,6 +255,15 @@ impl CompositorHandler for State {
         _time: u32,
     ) {
         self.draw(surface);
+    }
+
+    fn transform_changed(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &WlSurface,
+        _: Transform,
+    ) {
     }
 }
 
