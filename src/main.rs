@@ -6,8 +6,9 @@ use std::result::Result as StdResult;
 use std::time::{Duration, Instant};
 
 use calloop::timer::{TimeoutAction, Timer};
-use calloop::{EventLoop, LoopHandle};
+use calloop::{EventLoop, LoopHandle, RegistrationToken};
 use calloop_wayland_source::WaylandSource;
+use catacomb_ipc::{self, DpmsState, IpcMessage};
 use glutin::api::egl::display::Display;
 use glutin::config::ConfigTemplateBuilder;
 use glutin::prelude::*;
@@ -32,7 +33,7 @@ use smithay_client_toolkit::{
     delegate_touch, registry_handlers,
 };
 
-use crate::drawer::Drawer;
+use crate::drawer::{Drawer, HANDLE_HEIGHT};
 use crate::module::battery::Battery;
 use crate::module::brightness::Brightness;
 use crate::module::cellular::Cellular;
@@ -42,7 +43,7 @@ use crate::module::orientation::Orientation;
 use crate::module::scale::Scale;
 use crate::module::wifi::Wifi;
 use crate::module::Module;
-use crate::panel::Panel;
+use crate::panel::{Panel, PANEL_HEIGHT};
 use crate::protocols::fractional_scale::{FractionalScaleHandler, FractionalScaleManager};
 use crate::protocols::viewporter::Viewporter;
 use crate::reaper::Reaper;
@@ -64,6 +65,12 @@ mod gl {
 
 /// Time between drawer animation updates.
 const ANIMATION_INTERVAL: Duration = Duration::from_millis(1000 / 120);
+
+/// Maximum time between taps to be considered a double-tap.
+const MAX_DOUBLE_TAP_DURATION: Duration = Duration::from_millis(200);
+
+/// Square of the maximum distance before a touch input is considered a drag.
+const MAX_TAP_DISTANCE: f64 = 400.;
 
 /// Height percentage when drawer animation starts opening instead
 /// of closing.
@@ -109,12 +116,17 @@ fn main() {
 pub struct State {
     event_loop: LoopHandle<'static, Self>,
     protocol_states: ProtocolStates,
-    active_touch: Option<i32>,
-    drawer_opening: bool,
-    last_touch_y: f64,
     modules: Modules,
     terminated: bool,
     reaper: Reaper,
+
+    tap_timeout: Option<RegistrationToken>,
+    active_touch: Option<i32>,
+    panel_height: Option<u32>,
+    last_tap: Option<Instant>,
+    touch_start: (f64, f64),
+    drawer_opening: bool,
+    last_touch_y: f64,
 
     touch: Option<WlTouch>,
     drawer: Option<Drawer>,
@@ -145,8 +157,12 @@ impl State {
             reaper,
             drawer_opening: Default::default(),
             active_touch: Default::default(),
+            panel_height: Default::default(),
             last_touch_y: Default::default(),
+            touch_start: Default::default(),
+            tap_timeout: Default::default(),
             terminated: Default::default(),
+            last_tap: Default::default(),
             drawer: Default::default(),
             touch: Default::default(),
             panel: Default::default(),
@@ -206,8 +222,9 @@ impl State {
             }
         } else if self.drawer().owns_surface(surface) {
             let compositor = &self.protocol_states.compositor;
+            let modules = &mut self.modules.as_slice_mut();
             let drawer = self.drawer.as_mut().unwrap();
-            if let Err(error) = drawer.draw(compositor, &mut self.modules.as_slice_mut()) {
+            if let Err(error) = drawer.draw(compositor, modules, self.drawer_opening) {
                 eprintln!("Drawer rendering failed: {error:?}");
             }
         }
@@ -217,6 +234,20 @@ impl State {
     fn request_frame(&mut self) {
         self.drawer().request_frame();
         self.panel().request_frame();
+    }
+
+    /// Set drawer status without animation.
+    fn set_drawer_status(&mut self, open: bool) {
+        let drawer = self.drawer.as_mut().unwrap();
+        if open {
+            // Show drawer on panel single-tap with drawer closed.
+            drawer.offset = drawer.max_offset();
+            drawer.request_frame();
+        } else {
+            // Hide drawer on single-tap of panel or drawer handle.
+            drawer.offset = 0.;
+            drawer.hide();
+        }
     }
 
     fn drawer(&mut self) -> &mut Drawer {
@@ -331,6 +362,7 @@ impl LayerShellHandler for State {
         if self.panel().owns_surface(surface) {
             self.panel.as_mut().unwrap().reconfigure(&self.protocol_states.compositor, configure);
         } else if self.drawer().owns_surface(surface) {
+            self.panel_height = Some(configure.new_size.1);
             self.drawer().reconfigure(configure);
         }
         self.draw(surface);
@@ -397,8 +429,8 @@ impl TouchHandler for State {
                 eprintln!("Error: Couldn't open drawer: {err}");
             }
 
-            drawer.offsetting = true;
             self.last_touch_y = position.1;
+            self.touch_start = position;
             self.active_touch = Some(id);
             self.drawer_opening = true;
         } else if drawer.owns_surface(&surface) {
@@ -407,8 +439,8 @@ impl TouchHandler for State {
             // Check drawer touch status.
             if !touch_start.module_touched {
                 // Initiate closing drawer if no module was touched.
-                drawer.offsetting = true;
                 self.last_touch_y = position.1;
+                self.touch_start = position;
                 self.active_touch = Some(id);
                 self.drawer_opening = false;
             } else if touch_start.requires_redraw {
@@ -428,12 +460,48 @@ impl TouchHandler for State {
         id: i32,
     ) {
         let drawer = self.drawer.as_mut().unwrap();
-        if self.active_touch == Some(id) {
-            self.active_touch = None;
-            drawer.offsetting = false;
 
-            // Start drawer animation.
-            let _ = self.event_loop.insert_source(Timer::immediate(), animate_drawer);
+        // Handle non-module touch events.
+        if self.active_touch == Some(id) {
+            let last_tap = self.last_tap.take();
+            self.active_touch = None;
+
+            // Handle short taps.
+            if !drawer.offsetting {
+                if last_tap.map_or(false, |tap| tap.elapsed() <= MAX_DOUBLE_TAP_DURATION) {
+                    // Remove delayed single-tap callback.
+                    if let Some(source) = self.tap_timeout.take() {
+                        self.event_loop.remove(source);
+                    }
+
+                    // Turn off display on panel double-tap.
+                    if self.touch_start.1 <= PANEL_HEIGHT as f64 {
+                        let msg = IpcMessage::Dpms { state: Some(DpmsState::Off) };
+                        let _ = catacomb_ipc::send_message(&msg);
+                    }
+                } else if self.touch_start.1 <= PANEL_HEIGHT as f64 {
+                    // Stage delayed single-tap for taps on the top panel.
+                    let drawer_opening = self.drawer_opening;
+                    let timer = Timer::from_duration(MAX_DOUBLE_TAP_DURATION);
+                    let source = self.event_loop.insert_source(timer, move |_, _, state| {
+                        state.set_drawer_status(drawer_opening);
+                        TimeoutAction::Drop
+                    });
+                    self.tap_timeout = source.ok();
+                } else if self.panel_height.map_or(false, |panel_height| {
+                    self.touch_start.1 >= panel_height as f64 - HANDLE_HEIGHT as f64
+                }) {
+                    // Immediately close drawer, since handle has no double-tap.
+                    self.set_drawer_status(false);
+                }
+
+                self.last_tap = Some(Instant::now());
+            // Handle drawer dragging.
+            } else {
+                let _ = self.event_loop.insert_source(Timer::immediate(), animate_drawer);
+                drawer.offsetting = false;
+            }
+        // Handle module touch events.
         } else {
             let dirty = drawer.touch_up(id, &mut self.modules.as_slice_mut());
 
@@ -453,9 +521,17 @@ impl TouchHandler for State {
         position: (f64, f64),
     ) {
         if self.active_touch == Some(id) {
+            // Ignore touch motion until drag threshold is reached.
+            let x_delta = position.0 - self.touch_start.0;
+            let y_delta = position.1 - self.touch_start.1;
+            if x_delta.powi(2) + y_delta.powi(2) <= MAX_TAP_DISTANCE {
+                return;
+            }
+
             let delta = position.1 - self.last_touch_y;
 
             let drawer = self.drawer();
+            drawer.offsetting = true;
             drawer.offset += delta;
             drawer.request_frame();
 

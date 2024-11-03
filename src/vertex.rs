@@ -72,14 +72,14 @@ pub struct VertexBatches<'a, R: RenderProgram> {
     renderer: &'a R,
 }
 
-impl<'a, R: RenderProgram> Drop for VertexBatches<'a, R> {
+impl<R: RenderProgram> Drop for VertexBatches<'_, R> {
     fn drop(&mut self) {
         self.texture_ids.clear();
         self.vertices.clear();
     }
 }
 
-impl<'a, R: RenderProgram> VertexBatches<'a, R> {
+impl<R: RenderProgram> VertexBatches<'_, R> {
     /// Get the next vertex batch.
     pub fn next(&mut self) -> Option<VertexBatch<'_, R>> {
         let vertex_count = self.vertices.len();
@@ -113,7 +113,7 @@ pub struct VertexBatch<'a, R: RenderProgram> {
     renderer: &'a R,
 }
 
-impl<'a, R: RenderProgram> VertexBatch<'a, R> {
+impl<R: RenderProgram> VertexBatch<'_, R> {
     /// Render this batch.
     pub fn draw(&self) {
         self.renderer.bind();

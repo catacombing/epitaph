@@ -430,6 +430,8 @@ pub enum Svg {
     OrientationLocked,
     OrientationUnlocked,
     Scale,
+    ArrowUp,
+    ArrowDown,
 }
 
 impl Svg {
@@ -468,6 +470,8 @@ impl Svg {
             Self::OrientationLocked => (73, 65),
             Self::OrientationUnlocked => (73, 65),
             Self::Scale => (11, 7),
+            Self::ArrowUp => (64, 64),
+            Self::ArrowDown => (64, 64),
         }
     }
 
@@ -508,6 +512,8 @@ impl Svg {
                 include_str!("../svgs/orientation/orientation_unlocked.svg")
             },
             Self::Scale => include_str!("../svgs/scale/scale.svg"),
+            Self::ArrowUp => include_str!("../svgs/arrow_up.svg"),
+            Self::ArrowDown => include_str!("../svgs/arrow_down.svg"),
         }
     }
 }

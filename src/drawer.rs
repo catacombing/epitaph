@@ -23,9 +23,12 @@ use crate::panel::PANEL_HEIGHT;
 use crate::protocols::fractional_scale::FractionalScaleManager;
 use crate::protocols::viewporter::Viewporter;
 use crate::renderer::{RectRenderer, Renderer, TextRenderer};
-use crate::text::GlRasterizer;
+use crate::text::{GlRasterizer, GlSubTexture, Svg};
 use crate::vertex::{RectVertex, VertexBatcher};
 use crate::{gl, Result, Size, State};
+
+/// Height of the handle for single-tap closing the drawer.
+pub const HANDLE_HEIGHT: u32 = 32;
 
 /// Slider module height.
 ///
@@ -56,6 +59,8 @@ pub struct Drawer {
     /// Drawer currently in the process of being opened/closed.
     pub offsetting: bool,
 
+    opening_icon: Option<GlSubTexture>,
+    closing_icon: Option<GlSubTexture>,
     viewport: Option<WpViewport>,
     window: Option<LayerSurface>,
     queue: QueueHandle<State>,
@@ -91,6 +96,8 @@ impl Drawer {
             frame_pending: Default::default(),
             touch_position: Default::default(),
             touch_module: Default::default(),
+            opening_icon: Default::default(),
+            closing_icon: Default::default(),
             offsetting: Default::default(),
             viewport: Default::default(),
             touch_id: Default::default(),
@@ -151,11 +158,13 @@ impl Drawer {
         &mut self,
         compositor: &CompositorState,
         modules: &mut [&mut dyn Module],
+        opening: bool,
     ) -> Result<()> {
         self.frame_pending = false;
 
         // Clamp offset, to ensure minimize works immediately.
-        self.offset = self.offset.min(self.max_offset()).max(0.);
+        let max_offset = self.max_offset();
+        self.offset = self.offset.min(max_offset).max(0.);
 
         // Calculate drawer offset.
         let offset = (self.offset * self.scale_factor).min(self.size.height as f64);
@@ -179,6 +188,17 @@ impl Drawer {
         }
 
         self.renderer.draw(|renderer| unsafe {
+            // Dynamically initialize icons on first draw.
+            if self.opening_icon.is_none() {
+                let texture =
+                    renderer.rasterizer.rasterize_svg(Svg::ArrowDown, None, HANDLE_HEIGHT);
+                self.opening_icon = texture.ok();
+            }
+            if self.closing_icon.is_none() {
+                let texture = renderer.rasterizer.rasterize_svg(Svg::ArrowUp, None, HANDLE_HEIGHT);
+                self.closing_icon = texture.ok();
+            }
+
             // Transparently clear entire screen.
             gl::Disable(gl::SCISSOR_TEST);
             gl::Viewport(0, 0, self.size.width, self.size.height);
@@ -195,11 +215,25 @@ impl Drawer {
             gl::ClearColor(0.1, 0.1, 0.1, 1.0);
             gl::Clear(gl::COLOR_BUFFER_BIT);
 
-            // Draw module grid.
+            // Add modules to rendering batch.
             let mut run = DrawerRun::new(renderer);
             for module in modules.iter_mut().filter_map(|module| module.drawer_module()) {
                 run.batch(module);
             }
+
+            // Add drawer handle to rendering batch.
+            let opening = opening && self.offset != max_offset;
+            let handle_icon = if opening { &self.opening_icon } else { &self.closing_icon };
+            if let Some(handle_icon) = handle_icon {
+                let handle_height = (HANDLE_HEIGHT as f64 * self.scale_factor).round() as i16;
+                let handle_x = (self.size.width as i16 - handle_height) / 2;
+                let handle_y = self.size.height as i16 - handle_height;
+                for vertex in handle_icon.vertices(handle_x, handle_y).into_iter().flatten() {
+                    run.text_batcher.push(handle_icon.texture_id, vertex);
+                }
+            }
+
+            // Draw batched textures.
             run.draw();
 
             Ok(())
