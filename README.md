@@ -7,7 +7,7 @@ displaying and controlling commonly accessed OS functionality.
 
 <p align="center">
   <img src="https://user-images.githubusercontent.com/8886672/210189210-6a70de47-1bfe-46e0-b4e7-e4921a9c5ff5.png" width="45%"/>
-  <img src="https://user-images.githubusercontent.com/8886672/210189206-3d9d738f-dd60-47bb-99ab-7a6450be9da1.png" width="45%"/>
+  <img src="https://github.com/user-attachments/assets/66e61ac3-efb8-4417-97c8-73c39347cf02" width="45%"/>
 </p>
 
 ## Permissions
