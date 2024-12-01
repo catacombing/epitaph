@@ -468,7 +468,7 @@ impl TouchHandler for State {
 
             // Handle short taps.
             if !drawer.offsetting {
-                if last_tap.map_or(false, |tap| tap.elapsed() <= MAX_DOUBLE_TAP_DURATION) {
+                if last_tap.is_some_and(|tap| tap.elapsed() <= MAX_DOUBLE_TAP_DURATION) {
                     // Remove delayed single-tap callback.
                     if let Some(source) = self.tap_timeout.take() {
                         self.event_loop.remove(source);
@@ -488,7 +488,7 @@ impl TouchHandler for State {
                         TimeoutAction::Drop
                     });
                     self.tap_timeout = source.ok();
-                } else if self.panel_height.map_or(false, |panel_height| {
+                } else if self.panel_height.is_some_and(|panel_height| {
                     self.touch_start.1 >= panel_height as f64 - HANDLE_HEIGHT as f64
                 }) {
                     // Immediately close drawer, since handle has no double-tap.

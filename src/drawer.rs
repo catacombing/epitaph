@@ -242,7 +242,7 @@ impl Drawer {
 
     /// Check if the panel owns this surface.
     pub fn owns_surface(&self, surface: &WlSurface) -> bool {
-        self.window.as_ref().map_or(false, |window| window.wl_surface() == surface)
+        self.window.as_ref().is_some_and(|window| window.wl_surface() == surface)
     }
 
     /// Update the DPI scale factor.
@@ -387,6 +387,8 @@ impl Drawer {
         // Resize if the surface exists already.
         if self.renderer.has_surface() {
             let _ = self.renderer.resize(size, self.scale_factor);
+            self.closing_icon = None;
+            self.opening_icon = None;
             return;
         }
 
