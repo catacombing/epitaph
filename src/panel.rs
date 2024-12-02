@@ -1,6 +1,7 @@
 //! Panel window state.
 
 use std::num::NonZeroU32;
+use std::ptr::NonNull;
 
 use crossfont::Metrics;
 use glutin::api::egl::config::Config;
@@ -71,8 +72,8 @@ impl Panel {
         // Create the Wayland surface.
         let surface = compositor.create_surface(&queue);
 
-        let mut wayland_window_handle = WaylandWindowHandle::empty();
-        wayland_window_handle.surface = surface.id().as_ptr() as *mut _;
+        let window = NonNull::new(surface.id().as_ptr().cast()).unwrap();
+        let wayland_window_handle = WaylandWindowHandle::new(window);
         let raw_window_handle = RawWindowHandle::Wayland(wayland_window_handle);
 
         // Create the EGL surface.

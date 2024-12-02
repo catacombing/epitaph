@@ -1,6 +1,7 @@
 //! Drawer window state.
 
 use std::num::NonZeroU32;
+use std::ptr::NonNull;
 
 use glutin::api::egl::config::Config;
 use glutin::config::GetGlConfig;
@@ -400,8 +401,8 @@ impl Drawer {
         };
 
         // Get raw window handle.
-        let mut wayland_window_handle = WaylandWindowHandle::empty();
-        wayland_window_handle.surface = window.wl_surface().id().as_ptr() as *mut _;
+        let window = NonNull::new(window.wl_surface().id().as_ptr().cast()).unwrap();
+        let wayland_window_handle = WaylandWindowHandle::new(window);
         let raw_window_handle = RawWindowHandle::Wayland(wayland_window_handle);
 
         let config = self.renderer.egl_context().config();

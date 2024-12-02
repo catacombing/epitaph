@@ -12,20 +12,20 @@ edition = "2021"
 panic = 'abort'
 
 [dependencies]
-calloop = { version = "0.13.0", features = ["signals"] }
-calloop-wayland-source = "0.3.0"
+calloop = { version = "0.14.0", features = ["signals"] }
+calloop-wayland-source = "0.4.0"
 catacomb_ipc = { git = "https://github.com/chrisduerr/catacomb", rev = "88facecf54e0cb45be635db16d0ca00399277b5d" }
 chrono = { version = "0.4.20", default-features = false, features = ["clock"] }
 crossfont = "0.8.0"
-glutin = { version = "0.31.3", default-features = false, features = ["egl", "wayland"] }
+glutin = { version = "0.32.1", default-features = false, features = ["egl", "wayland"] }
 libc = "0.2.127"
-raw-window-handle = "0.5.0"
-resvg = { version = "0.41.0", default-features = false }
-smithay-client-toolkit = { version = "0.18.1", default-features = false, features = ["xkbcommon"] }
+raw-window-handle = "0.6.2"
+resvg = { version = "0.44.0", default-features = false }
+smithay-client-toolkit = { version = "0.19.2", default-features = false, features = ["xkbcommon"] }
 tokio = { version = "1.26.0", features = ["macros"] }
-udev = "0.8.0"
+udev = "0.9.1"
 wayland-backend = { version = "0.3.3", features = ["client_system"] }
-zbus = { version = "4.2.2", default-features = false, features = ["tokio"] }
+zbus = { version = "5.1.1", default-features = false, features = ["tokio"] }
 
 [build-dependencies]
 gl_generator = "0.14.0"

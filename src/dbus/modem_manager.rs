@@ -7,8 +7,9 @@ use calloop::channel::{self, Channel, Sender};
 use tokio::runtime::Builder;
 use zbus::export::futures_util::stream::StreamExt;
 use zbus::fdo::ObjectManagerProxy;
+use zbus::proxy::PropertyStream;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Type};
-use zbus::{proxy, Connection, PropertyStream};
+use zbus::{proxy, Connection};
 
 /// Cellular connection status.
 #[derive(PartialEq, Eq, Default, Copy, Clone, Debug)]

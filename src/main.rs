@@ -2,6 +2,7 @@ use std::error::Error;
 use std::ffi::CString;
 use std::ops::{Div, Mul};
 use std::process;
+use std::ptr::NonNull;
 use std::result::Result as StdResult;
 use std::time::{Duration, Instant};
 
@@ -20,7 +21,7 @@ use smithay_client_toolkit::reexports::client::protocol::wl_output::{Transform, 
 use smithay_client_toolkit::reexports::client::protocol::wl_seat::WlSeat;
 use smithay_client_toolkit::reexports::client::protocol::wl_surface::WlSurface;
 use smithay_client_toolkit::reexports::client::protocol::wl_touch::WlTouch;
-use smithay_client_toolkit::reexports::client::{Connection, EventQueue, Proxy, QueueHandle};
+use smithay_client_toolkit::reexports::client::{Connection, EventQueue, QueueHandle};
 use smithay_client_toolkit::registry::{ProvidesRegistryState, RegistryState};
 use smithay_client_toolkit::seat::touch::TouchHandler;
 use smithay_client_toolkit::seat::{Capability, SeatHandler, SeatState};
@@ -175,8 +176,8 @@ impl State {
 
     /// Initialize the panel/drawer windows and their EGL surfaces.
     fn init_windows(&mut self, connection: &Connection, queue: &EventQueue<Self>) -> Result<()> {
-        let mut wayland_display = WaylandDisplayHandle::empty();
-        wayland_display.display = connection.display().id().as_ptr() as *mut _;
+        let display = NonNull::new(connection.backend().display_ptr().cast()).unwrap();
+        let wayland_display = WaylandDisplayHandle::new(display);
         let raw_display_handle = RawDisplayHandle::Wayland(wayland_display);
 
         // Setup the OpenGL window.
@@ -294,6 +295,24 @@ impl CompositorHandler for State {
         _: &QueueHandle<Self>,
         _: &WlSurface,
         _: Transform,
+    ) {
+    }
+
+    fn surface_enter(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &WlSurface,
+        _: &WlOutput,
+    ) {
+    }
+
+    fn surface_leave(
+        &mut self,
+        _: &Connection,
+        _: &QueueHandle<Self>,
+        _: &WlSurface,
+        _: &WlOutput,
     ) {
     }
 }
