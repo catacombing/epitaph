@@ -33,6 +33,7 @@ impl Toggle for Flashlight {
         // Get all LED devices.
         let mut enumerator = Enumerator::new()?;
         enumerator.match_subsystem("leds")?;
+        enumerator.match_sysname("white:flash")?;
         let devices = enumerator.scan_devices()?;
 
         // Find any flashlight device.
@@ -76,11 +77,6 @@ impl Flash {
 
     /// Convert udev device to flashlight.
     fn from_device(device: Device) -> Option<Flash> {
-        // Ignore non-flashlight LEDs.
-        if device.sysname() != "white:flash" {
-            return None;
-        }
-
         let max_brightness_str = device.attribute_value("max_brightness")?.to_string_lossy();
         let max_brightness = usize::from_str(&max_brightness_str).ok()?;
         let brightness_str = device.attribute_value("brightness")?.to_string_lossy();
