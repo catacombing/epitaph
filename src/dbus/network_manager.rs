@@ -4,8 +4,8 @@ use std::error::Error;
 use std::thread;
 
 use calloop::channel::{self, Channel, Sender};
+use futures_lite::StreamExt;
 use tokio::runtime::Builder;
-use zbus::export::futures_util::stream::StreamExt;
 use zbus::proxy::{PropertyChanged, PropertyStream};
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Type};
 use zbus::{proxy, Connection};

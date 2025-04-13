@@ -339,7 +339,7 @@ fn rgb_to_rgba(rgb: &[u8]) -> Vec<u8> {
 
 /// Element stored in the texture atlas.
 struct AtlasEntry<'a> {
-    buffer: Cow<'a, Vec<u8>>,
+    buffer: Cow<'a, [u8]>,
     width: i32,
     height: i32,
     top: i32,
@@ -367,7 +367,7 @@ impl<'a> From<&'a RasterizedGlyph> for AtlasEntry<'a> {
     fn from(glyph: &'a RasterizedGlyph) -> Self {
         let (buffer, multicolor) = match &glyph.buffer {
             BitmapBuffer::Rgb(buffer) => (Cow::Owned(rgb_to_rgba(buffer)), false),
-            BitmapBuffer::Rgba(buffer) => (Cow::Borrowed(buffer), true),
+            BitmapBuffer::Rgba(buffer) => (Cow::Borrowed(buffer.as_slice()), true),
         };
 
         Self {

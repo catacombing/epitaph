@@ -17,10 +17,11 @@ calloop-wayland-source = "0.4.0"
 catacomb_ipc = { git = "https://github.com/chrisduerr/catacomb", rev = "88facecf54e0cb45be635db16d0ca00399277b5d" }
 chrono = { version = "0.4.20", default-features = false, features = ["clock"] }
 crossfont = "0.8.0"
+futures-lite = "2.6.0"
 glutin = { version = "0.32.1", default-features = false, features = ["egl", "wayland"] }
 libc = "0.2.127"
 raw-window-handle = "0.6.2"
-resvg = { version = "0.44.0", default-features = false }
+resvg = { version = "0.45.0", default-features = false }
 smithay-client-toolkit = { version = "0.19.2", default-features = false, features = ["xkbcommon"] }
 tokio = { version = "1.26.0", features = ["macros"] }
 udev = "0.9.1"
