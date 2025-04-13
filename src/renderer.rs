@@ -13,7 +13,7 @@ use glutin::surface::WindowSurface;
 use crate::gl::types::{GLenum, GLfloat, GLshort, GLuint};
 use crate::text::GlRasterizer;
 use crate::vertex::{GlyphVertex, RectVertex, VertexBatcher};
-use crate::{gl, Result, Size};
+use crate::{Result, Size, gl};
 
 /// Default font.
 const FONT: &str = "Sans";

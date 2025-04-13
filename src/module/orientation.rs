@@ -2,9 +2,9 @@
 
 use catacomb_ipc::{self, IpcMessage};
 
+use crate::Result;
 use crate::module::{DrawerModule, Module, Toggle};
 use crate::text::Svg;
-use crate::Result;
 
 pub struct Orientation {
     locked: bool,
@@ -33,11 +33,7 @@ impl Toggle for Orientation {
     }
 
     fn svg(&self) -> Svg {
-        if self.locked {
-            Svg::OrientationLocked
-        } else {
-            Svg::OrientationUnlocked
-        }
+        if self.locked { Svg::OrientationLocked } else { Svg::OrientationUnlocked }
     }
 
     fn enabled(&self) -> bool {

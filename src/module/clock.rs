@@ -2,8 +2,8 @@
 
 use std::time::{Duration, UNIX_EPOCH};
 
-use calloop::timer::{TimeoutAction, Timer};
 use calloop::LoopHandle;
+use calloop::timer::{TimeoutAction, Timer};
 use chrono::offset::Local;
 
 use crate::module::{Alignment, Module, PanelModule, PanelModuleContent};

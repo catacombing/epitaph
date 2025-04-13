@@ -25,16 +25,17 @@ use smithay_client_toolkit::reexports::client::{Connection, EventQueue, QueueHan
 use smithay_client_toolkit::registry::{ProvidesRegistryState, RegistryState};
 use smithay_client_toolkit::seat::touch::TouchHandler;
 use smithay_client_toolkit::seat::{Capability, SeatHandler, SeatState};
+use smithay_client_toolkit::shell::WaylandSurface;
 use smithay_client_toolkit::shell::wlr_layer::{
     LayerShell, LayerShellHandler, LayerSurface, LayerSurfaceConfigure,
 };
-use smithay_client_toolkit::shell::WaylandSurface;
 use smithay_client_toolkit::{
     delegate_compositor, delegate_layer, delegate_output, delegate_registry, delegate_seat,
     delegate_touch, registry_handlers,
 };
 
 use crate::drawer::{Drawer, HANDLE_HEIGHT};
+use crate::module::Module;
 use crate::module::battery::Battery;
 use crate::module::brightness::Brightness;
 use crate::module::cellular::Cellular;
@@ -43,8 +44,7 @@ use crate::module::flashlight::Flashlight;
 use crate::module::orientation::Orientation;
 use crate::module::scale::Scale;
 use crate::module::wifi::Wifi;
-use crate::module::Module;
-use crate::panel::{Panel, PANEL_HEIGHT};
+use crate::panel::{PANEL_HEIGHT, Panel};
 use crate::protocols::fractional_scale::{FractionalScaleHandler, FractionalScaleManager};
 use crate::protocols::viewporter::Viewporter;
 use crate::reaper::Reaper;
@@ -60,7 +60,7 @@ mod text;
 mod vertex;
 
 mod gl {
-    #![allow(clippy::all)]
+    #![allow(clippy::all, unsafe_op_in_unsafe_fn)]
     include!(concat!(env!("OUT_DIR"), "/gl_bindings.rs"));
 }
 

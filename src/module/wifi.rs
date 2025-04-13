@@ -1,7 +1,7 @@
 //! WiFi status and signal strength.
 
-use calloop::channel::Event;
 use calloop::LoopHandle;
+use calloop::channel::Event;
 
 use crate::dbus::network_manager::{self, WifiConnection};
 use crate::module::{Alignment, DrawerModule, Module, PanelModule, PanelModuleContent, Toggle};

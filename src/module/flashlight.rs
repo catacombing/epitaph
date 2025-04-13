@@ -5,9 +5,9 @@ use std::str::FromStr;
 
 use udev::{Device, Enumerator};
 
+use crate::Result;
 use crate::module::{DrawerModule, Module, Toggle};
 use crate::text::Svg;
-use crate::Result;
 
 #[derive(Default)]
 pub struct Flashlight {
@@ -50,11 +50,7 @@ impl Toggle for Flashlight {
     }
 
     fn svg(&self) -> Svg {
-        if self.enabled {
-            Svg::FlashlightOn
-        } else {
-            Svg::FlashlightOff
-        }
+        if self.enabled { Svg::FlashlightOn } else { Svg::FlashlightOff }
     }
 
     fn enabled(&self) -> bool {

@@ -14,10 +14,10 @@ use smithay_client_toolkit::compositor::{CompositorState, Region};
 use smithay_client_toolkit::reexports::client::protocol::wl_surface::WlSurface;
 use smithay_client_toolkit::reexports::client::{Proxy, QueueHandle};
 use smithay_client_toolkit::reexports::protocols::wp::viewporter::client::wp_viewport::WpViewport;
+use smithay_client_toolkit::shell::WaylandSurface;
 use smithay_client_toolkit::shell::wlr_layer::{
     Anchor, Layer, LayerShell, LayerSurface, LayerSurfaceConfigure,
 };
-use smithay_client_toolkit::shell::WaylandSurface;
 
 use crate::module::{DrawerModule, Module, Slider, Toggle};
 use crate::panel::PANEL_HEIGHT;
@@ -26,7 +26,7 @@ use crate::protocols::viewporter::Viewporter;
 use crate::renderer::{RectRenderer, Renderer, TextRenderer};
 use crate::text::{GlRasterizer, GlSubTexture, Svg};
 use crate::vertex::{RectVertex, VertexBatcher};
-use crate::{gl, Result, Size, State};
+use crate::{Result, Size, State, gl};
 
 /// Height of the handle for single-tap closing the drawer.
 pub const HANDLE_HEIGHT: u32 = 32;

@@ -4,9 +4,9 @@ use std::str::FromStr;
 
 use udev::Enumerator;
 
+use crate::Result;
 use crate::module::{DrawerModule, Module, Slider};
 use crate::text::Svg;
-use crate::Result;
 
 pub struct Brightness {
     brightness: f64,

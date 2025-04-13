@@ -7,8 +7,8 @@ use std::io::{self, Read};
 use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, Output, Stdio};
 
-use calloop::signals::{Signal, Signals};
 use calloop::LoopHandle;
+use calloop::signals::{Signal, Signals};
 
 use crate::{Result, State};
 

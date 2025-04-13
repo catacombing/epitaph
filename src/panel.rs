@@ -14,10 +14,10 @@ use smithay_client_toolkit::compositor::{CompositorState, Region};
 use smithay_client_toolkit::reexports::client::protocol::wl_surface::WlSurface;
 use smithay_client_toolkit::reexports::client::{Proxy, QueueHandle};
 use smithay_client_toolkit::reexports::protocols::wp::viewporter::client::wp_viewport::WpViewport;
+use smithay_client_toolkit::shell::WaylandSurface;
 use smithay_client_toolkit::shell::wlr_layer::{
     Anchor, Layer, LayerShell, LayerSurface, LayerSurfaceConfigure,
 };
-use smithay_client_toolkit::shell::WaylandSurface;
 
 use crate::module::{Alignment, Module, PanelModuleContent};
 use crate::protocols::fractional_scale::FractionalScaleManager;
@@ -25,7 +25,7 @@ use crate::protocols::viewporter::Viewporter;
 use crate::renderer::{Renderer, TextRenderer};
 use crate::text::{GlRasterizer, Svg};
 use crate::vertex::VertexBatcher;
-use crate::{gl, Result, Size, State};
+use crate::{Result, Size, State, gl};
 
 /// Panel height in pixels with a scale factor of 1.
 pub const PANEL_HEIGHT: i32 = 20;

@@ -8,7 +8,7 @@ use futures_lite::StreamExt;
 use tokio::runtime::Builder;
 use zbus::proxy::{PropertyChanged, PropertyStream};
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Type};
-use zbus::{proxy, Connection};
+use zbus::{Connection, proxy};
 
 /// Wifi connection quality.
 #[derive(PartialEq, Eq, Default, Copy, Clone, Debug)]

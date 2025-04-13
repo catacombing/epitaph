@@ -2,9 +2,9 @@
 
 use catacomb_ipc::{self, IpcMessage, WindowScale};
 
+use crate::Result;
 use crate::module::{DrawerModule, Module, Slider};
 use crate::text::Svg;
-use crate::Result;
 
 pub struct Scale {
     scale: f64,

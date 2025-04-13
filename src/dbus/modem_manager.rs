@@ -9,7 +9,7 @@ use tokio::runtime::Builder;
 use zbus::fdo::ObjectManagerProxy;
 use zbus::proxy::PropertyStream;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Type};
-use zbus::{proxy, Connection};
+use zbus::{Connection, proxy};
 
 /// Cellular connection status.
 #[derive(PartialEq, Eq, Default, Copy, Clone, Debug)]

@@ -1,8 +1,8 @@
 //! OpenGL text rendering.
 
 use std::borrow::Cow;
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::{cmp, mem};
 
 use crossfont::{
@@ -12,9 +12,9 @@ use crossfont::{
 use resvg::tiny_skia::{Pixmap, Transform};
 use resvg::usvg::{Options, Tree};
 
+use crate::Result;
 use crate::gl::types::GLuint;
 use crate::renderer::Texture;
-use crate::Result;
 
 /// Width and height of the glyph atlas texture.
 ///

@@ -1,7 +1,7 @@
 //! Panel modules.
 
-use crate::text::Svg;
 use crate::Result;
+use crate::text::Svg;
 
 pub mod battery;
 pub mod brightness;
