@@ -13,7 +13,7 @@ jobs:
       - name: Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install libxkbcommon-dev libwayland-dev libudev-dev
+          sudo apt-get install libxkbcommon-dev libwayland-dev libudev-dev libfontconfig-dev
       - uses: actions/checkout@v2
       - name: Stable
         run: cargo test
