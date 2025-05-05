@@ -33,7 +33,6 @@ pub struct FractionalScaleManager {
 }
 
 impl FractionalScaleManager {
-    /// Create new viewporter.
     pub fn new(globals: &GlobalList, queue_handle: &QueueHandle<State>) -> Result<Self, BindError> {
         let manager = globals.bind(queue_handle, 1..=1, GlobalData)?;
         Ok(Self { manager })

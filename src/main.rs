@@ -34,6 +34,7 @@ use smithay_client_toolkit::{
     delegate_touch, registry_handlers,
 };
 
+use crate::config::input::{MAX_DOUBLE_TAP_DURATION, MAX_TAP_DISTANCE};
 use crate::drawer::{Drawer, HANDLE_HEIGHT};
 use crate::module::Module;
 use crate::module::battery::Battery;
@@ -49,6 +50,7 @@ use crate::protocols::fractional_scale::{FractionalScaleHandler, FractionalScale
 use crate::protocols::viewporter::Viewporter;
 use crate::reaper::Reaper;
 
+mod config;
 mod dbus;
 mod drawer;
 mod module;
@@ -66,12 +68,6 @@ mod gl {
 
 /// Time between drawer animation updates.
 const ANIMATION_INTERVAL: Duration = Duration::from_millis(1000 / 120);
-
-/// Maximum time between taps to be considered a double-tap.
-const MAX_DOUBLE_TAP_DURATION: Duration = Duration::from_millis(200);
-
-/// Square of the maximum distance before a touch input is considered a drag.
-const MAX_TAP_DISTANCE: f64 = 400.;
 
 /// Height percentage when drawer animation starts opening instead
 /// of closing.

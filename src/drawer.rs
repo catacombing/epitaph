@@ -19,6 +19,7 @@ use smithay_client_toolkit::shell::wlr_layer::{
     Anchor, Layer, LayerShell, LayerSurface, LayerSurfaceConfigure,
 };
 
+use crate::config::colors::{BG, MODULE_ACTIVE, MODULE_INACTIVE};
 use crate::module::{DrawerModule, Module, Slider, Toggle};
 use crate::panel::PANEL_HEIGHT;
 use crate::protocols::fractional_scale::FractionalScaleManager;
@@ -35,12 +36,6 @@ pub const HANDLE_HEIGHT: u32 = 32;
 ///
 /// This should be less than `MODULE_SIZE`.
 const SLIDER_HEIGHT: f64 = (MODULE_SIZE - 16) as f64;
-
-/// Color of slider handle and active buttons,
-const MODULE_COLOR_FG: [u8; 4] = [85, 85, 85, 255];
-
-/// Color of the slider tray and inactive buttons.
-const MODULE_COLOR_BG: [u8; 4] = [51, 51, 51, 255];
 
 /// Padding between drawer modules.
 const MODULE_PADDING: f64 = 16.;
@@ -213,7 +208,8 @@ impl Drawer {
             gl::Viewport(0, y_offset, self.size.width, self.size.height);
 
             // Draw background for the offset viewport.
-            gl::ClearColor(0.1, 0.1, 0.1, 1.0);
+            let [r, g, b] = BG.as_f32();
+            gl::ClearColor(r, g, b, 1.);
             gl::Clear(gl::COLOR_BUFFER_BIT);
 
             // Add modules to rendering batch.
@@ -481,22 +477,15 @@ impl<'a> DrawerRun<'a> {
 
         // Stage tray vertices.
         let tray =
-            RectVertex::new(window_width, window_height, x, y, width, height, &MODULE_COLOR_BG);
+            RectVertex::new(window_width, window_height, x, y, width, height, MODULE_INACTIVE);
         for vertex in tray {
             self.rect_batcher.push(0, vertex);
         }
 
         // Stage slider vertices.
         let slider_width = (width as f64 * slider.get_value()) as i16;
-        let slider = RectVertex::new(
-            window_width,
-            window_height,
-            x,
-            y,
-            slider_width,
-            height,
-            &MODULE_COLOR_FG,
-        );
+        let slider =
+            RectVertex::new(window_width, window_height, x, y, slider_width, height, MODULE_ACTIVE);
         for vertex in slider {
             self.rect_batcher.push(0, vertex);
         }
@@ -536,8 +525,8 @@ impl<'a> DrawerRun<'a> {
         }
 
         // Batch icon backdrop.
-        let color = if toggle.enabled() { MODULE_COLOR_FG } else { MODULE_COLOR_BG };
-        let backdrop = RectVertex::new(window_width, window_height, x, y, size, size, &color);
+        let color = if toggle.enabled() { MODULE_ACTIVE } else { MODULE_INACTIVE };
+        let backdrop = RectVertex::new(window_width, window_height, x, y, size, size, color);
         for vertex in backdrop {
             self.rect_batcher.push(0, vertex);
         }

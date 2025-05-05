@@ -10,16 +10,12 @@ use glutin::api::egl::surface::Surface;
 use glutin::prelude::*;
 use glutin::surface::WindowSurface;
 
+use crate::config::colors::BG;
+use crate::config::font::{FONT, FONT_SIZE};
 use crate::gl::types::{GLenum, GLfloat, GLshort, GLuint};
 use crate::text::GlRasterizer;
 use crate::vertex::{GlyphVertex, RectVertex, VertexBatcher};
 use crate::{Result, Size, gl};
-
-/// Default font.
-const FONT: &str = "Sans";
-
-/// Default font size.
-const FONT_SIZE: f32 = 12.;
 
 /// Maximum items to be drawn in a batch.
 ///
@@ -53,7 +49,8 @@ impl Renderer {
             let egl_context = egl_context.make_current_surfaceless()?;
 
             // Set background color and blending.
-            gl::ClearColor(0.1, 0.1, 0.1, 1.0);
+            let [r, g, b] = BG.as_f32();
+            gl::ClearColor(r, g, b, 1.);
             gl::Enable(gl::BLEND);
 
             let font_size = FontSize::new(FONT_SIZE);

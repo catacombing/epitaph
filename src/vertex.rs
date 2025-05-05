@@ -2,6 +2,7 @@
 
 use std::{cmp, mem, ptr};
 
+use crate::config::colors::Color;
 use crate::gl;
 use crate::gl::types::GLuint;
 use crate::renderer::RenderProgram;
@@ -219,7 +220,7 @@ impl RectVertex {
         y: i16,
         width: i16,
         height: i16,
-        color: &[u8; 4],
+        color: Color,
     ) -> [Self; 4] {
         // Calculate rectangle vertex positions in normalized device coordinates.
         // NDC range from -1 to +1, with Y pointing up.
@@ -230,7 +231,7 @@ impl RectVertex {
         let width = width as f32 / half_width;
         let height = height as f32 / half_height;
 
-        let [r, g, b, a] = *color;
+        let [r, g, b, a] = color.as_u8();
         [
             RectVertex { x, y, r, g, b, a },
             RectVertex { x, y: y - height, r, g, b, a },
