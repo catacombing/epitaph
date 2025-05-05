@@ -4,7 +4,7 @@ use std::ops::{Div, Mul};
 use std::process;
 use std::ptr::NonNull;
 use std::result::Result as StdResult;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use calloop::timer::{TimeoutAction, Timer};
 use calloop::{EventLoop, LoopHandle, RegistrationToken};
@@ -65,16 +65,6 @@ mod gl {
     #![allow(clippy::all, unsafe_op_in_unsafe_fn)]
     include!(concat!(env!("OUT_DIR"), "/gl_bindings.rs"));
 }
-
-/// Time between drawer animation updates.
-const ANIMATION_INTERVAL: Duration = Duration::from_millis(1000 / 120);
-
-/// Height percentage when drawer animation starts opening instead
-/// of closing.
-const ANIMATION_THRESHOLD: f64 = 0.25;
-
-/// Step size for drawer animation.
-const ANIMATION_STEP: f64 = 20.;
 
 /// Convenience result wrapper.
 pub type Result<T> = StdResult<T, Box<dyn Error>>;
@@ -513,8 +503,7 @@ impl TouchHandler for State {
                 self.last_tap = Some(Instant::now());
             // Handle drawer dragging.
             } else {
-                let _ = self.event_loop.insert_source(Timer::immediate(), animate_drawer);
-                drawer.offsetting = false;
+                drawer.start_animation();
             }
         // Handle module touch events.
         } else {
@@ -712,40 +701,5 @@ impl Div<f64> for Size {
         self.width = (self.width as f64 / factor).round() as i32;
         self.height = (self.height as f64 / factor).round() as i32;
         self
-    }
-}
-
-/// Drawer animation frame.
-fn animate_drawer(now: Instant, _: &mut (), state: &mut State) -> TimeoutAction {
-    let drawer_opening = state.drawer_opening;
-    let drawer = state.drawer();
-    let max_offset = drawer.max_offset();
-
-    // Compute threshold beyond which motion will automatically be completed.
-    let threshold = if drawer_opening {
-        max_offset * ANIMATION_THRESHOLD
-    } else {
-        max_offset - max_offset * ANIMATION_THRESHOLD
-    };
-
-    // Update drawer position.
-    if drawer.offset >= threshold {
-        drawer.offset += ANIMATION_STEP;
-    } else {
-        drawer.offset -= ANIMATION_STEP;
-    }
-
-    if drawer.offset <= 0. {
-        drawer.hide();
-
-        TimeoutAction::Drop
-    } else if drawer.offset >= max_offset {
-        drawer.request_frame();
-
-        TimeoutAction::Drop
-    } else {
-        drawer.request_frame();
-
-        TimeoutAction::ToInstant(now + ANIMATION_INTERVAL)
     }
 }

@@ -2,6 +2,7 @@
 
 use std::num::NonZeroU32;
 use std::ptr::NonNull;
+use std::time::Instant;
 
 use glutin::api::egl::config::Config;
 use glutin::config::GetGlConfig;
@@ -49,12 +50,20 @@ const MODULE_SIZE: u32 = 64;
 /// Drawer module icon height.
 const ICON_HEIGHT: u32 = 32;
 
+/// Height percentage when drawer animation starts opening instead
+/// of closing.
+const ANIMATION_THRESHOLD: f64 = 0.25;
+
+/// Animation speed multiplier.
+const ANIMATION_SPEED: f64 = 3.;
+
 pub struct Drawer {
     /// Current drawer Y-offset.
     pub offset: f64,
     /// Drawer currently in the process of being opened/closed.
     pub offsetting: bool,
 
+    last_animation_frame: Option<Instant>,
     opening_icon: Option<GlSubTexture>,
     closing_icon: Option<GlSubTexture>,
     viewport: Option<WpViewport>,
@@ -89,6 +98,7 @@ impl Drawer {
             queue,
             size,
             scale_factor: 1.,
+            last_animation_frame: Default::default(),
             frame_pending: Default::default(),
             touch_position: Default::default(),
             touch_module: Default::default(),
@@ -157,6 +167,15 @@ impl Drawer {
         opening: bool,
     ) -> Result<()> {
         self.frame_pending = false;
+
+        // Update drawer open/close animation.
+        self.animate_drawer(opening);
+        if self.last_animation_frame.is_some() {
+            if let Some(window) = &self.window {
+                let surface = window.wl_surface();
+                surface.frame(&self.queue, surface.clone());
+            }
+        }
 
         // Clamp offset, to ensure minimize works immediately.
         let max_offset = self.max_offset();
@@ -359,6 +378,48 @@ impl Drawer {
     /// Drawer offset when fully visible.
     pub fn max_offset(&self) -> f64 {
         self.size.height as f64 / self.scale_factor
+    }
+
+    /// Start the drawer animation.
+    pub fn start_animation(&mut self) {
+        self.last_animation_frame = Some(Instant::now());
+        self.offsetting = false;
+        self.request_frame();
+    }
+
+    /// Update drawer animation.
+    fn animate_drawer(&mut self, opening: bool) {
+        // Ensure animation is active.
+        let last_animation_frame = match self.last_animation_frame {
+            Some(last_animation_frame) => last_animation_frame,
+            None => return,
+        };
+
+        let max_offset = self.max_offset();
+
+        // Compute threshold beyond which motion will automatically be completed.
+        let threshold = if opening {
+            max_offset * ANIMATION_THRESHOLD
+        } else {
+            max_offset - max_offset * ANIMATION_THRESHOLD
+        };
+
+        // Update drawer position.
+        let animation_step = last_animation_frame.elapsed().as_millis() as f64 * ANIMATION_SPEED;
+        if self.offset >= threshold {
+            self.offset += animation_step;
+        } else {
+            self.offset -= animation_step;
+        }
+
+        if self.offset <= 0. {
+            self.last_animation_frame = None;
+            self.hide();
+        } else if self.offset >= max_offset {
+            self.last_animation_frame = None;
+        } else {
+            self.last_animation_frame = Some(Instant::now());
+        }
     }
 
     /// Resize the window.
