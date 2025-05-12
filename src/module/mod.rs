@@ -7,6 +7,7 @@ pub mod battery;
 pub mod brightness;
 pub mod cellular;
 pub mod clock;
+pub mod date;
 pub mod flashlight;
 pub mod orientation;
 pub mod scale;
@@ -28,6 +29,7 @@ pub trait Module {
 /// Module alignment.
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub enum Alignment {
+    Left,
     Center,
     Right,
 }

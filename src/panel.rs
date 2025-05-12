@@ -124,7 +124,7 @@ impl Panel {
         modules: &[&dyn Module],
         size: Size<f32>,
     ) -> Result<()> {
-        for alignment in [Alignment::Center, Alignment::Right] {
+        for alignment in [Alignment::Left, Alignment::Center, Alignment::Right] {
             let mut run = PanelRun::new(renderer, size, alignment)?;
             for module in modules
                 .iter()
@@ -221,6 +221,7 @@ impl<'a> PanelRun<'a> {
 
         // Determine vertex offset from left screen edge.
         let x_offset = match self.alignment {
+            Alignment::Left => self.edge_padding(),
             Alignment::Center => (self.size.width as i16 - self.width) / 2,
             Alignment::Right => self.size.width as i16 - self.width - self.edge_padding(),
         };

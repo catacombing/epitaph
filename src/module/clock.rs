@@ -9,9 +9,7 @@ use chrono::offset::Local;
 use crate::module::{Alignment, Module, PanelModule, PanelModuleContent};
 use crate::{Result, State};
 
-pub struct Clock {
-    _new: (),
-}
+pub struct Clock;
 
 impl Clock {
     pub fn new(event_loop: &LoopHandle<'static, State>) -> Result<Self> {
@@ -25,7 +23,7 @@ impl Clock {
             TimeoutAction::ToInstant(now + remaining)
         })?;
 
-        Ok(Self { _new: () })
+        Ok(Self)
     }
 }
 

@@ -41,6 +41,7 @@ use crate::module::battery::Battery;
 use crate::module::brightness::Brightness;
 use crate::module::cellular::Cellular;
 use crate::module::clock::Clock;
+use crate::module::date::Date;
 use crate::module::flashlight::Flashlight;
 use crate::module::orientation::Orientation;
 use crate::module::scale::Scale;
@@ -621,6 +622,7 @@ struct Modules {
     scale: Scale,
     clock: Clock,
     wifi: Wifi,
+    date: Date,
 }
 
 impl Modules {
@@ -634,11 +636,12 @@ impl Modules {
             clock: Clock::new(event_loop)?,
             wifi: Wifi::new(event_loop)?,
             scale: Scale::new(),
+            date: Date::new()?,
         })
     }
 
     /// Get all modules as sorted immutable slice.
-    fn as_slice(&self) -> [&dyn Module; 8] {
+    fn as_slice(&self) -> [&dyn Module; 9] {
         [
             &self.brightness,
             &self.scale,
@@ -648,11 +651,12 @@ impl Modules {
             &self.battery,
             &self.orientation,
             &self.flashlight,
+            &self.date,
         ]
     }
 
     /// Get all modules as sorted mutable slice.
-    fn as_slice_mut(&mut self) -> [&mut dyn Module; 8] {
+    fn as_slice_mut(&mut self) -> [&mut dyn Module; 9] {
         [
             &mut self.brightness,
             &mut self.scale,
@@ -662,6 +666,7 @@ impl Modules {
             &mut self.battery,
             &mut self.orientation,
             &mut self.flashlight,
+            &mut self.date,
         ]
     }
 }
