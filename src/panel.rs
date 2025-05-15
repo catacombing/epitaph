@@ -51,10 +51,10 @@ pub struct Panel {
 
 impl Panel {
     pub fn new(
+        queue: QueueHandle<State>,
         fractional_scale: &FractionalScaleManager,
         compositor: &CompositorState,
         viewporter: &Viewporter,
-        queue: QueueHandle<State>,
         layer: &LayerShell,
         egl_config: &Config,
     ) -> Result<Self> {
@@ -95,8 +95,7 @@ impl Panel {
         window.set_exclusive_zone(PANEL_HEIGHT);
 
         // Initialize the renderer.
-        let mut renderer = Renderer::new(egl_context, 1.)?;
-        renderer.set_surface(Some(egl_surface));
+        let renderer = Renderer::new(egl_context, egl_surface, 1.)?;
 
         // Initialize fractional scaling protocol.
         fractional_scale.fractional_scaling(&queue, window.wl_surface());
@@ -185,8 +184,7 @@ impl Panel {
             self.window.wl_surface().set_opaque_region(Some(region.wl_region()));
         }
 
-        let scale_factor = self.scale_factor;
-        let _ = self.renderer.resize(size, scale_factor);
+        let _ = self.renderer.resize(size, self.scale_factor);
     }
 }
 

@@ -5,7 +5,6 @@ use std::ptr::NonNull;
 use std::time::Instant;
 
 use glutin::api::egl::config::Config;
-use glutin::config::GetGlConfig;
 use glutin::context::{ContextApi, ContextAttributesBuilder, Version};
 use glutin::display::GetGlDisplay;
 use glutin::prelude::*;
@@ -66,8 +65,8 @@ pub struct Drawer {
     last_animation_frame: Option<Instant>,
     opening_icon: Option<GlSubTexture>,
     closing_icon: Option<GlSubTexture>,
-    viewport: Option<WpViewport>,
-    window: Option<LayerSurface>,
+    viewport: WpViewport,
+    window: LayerSurface,
     queue: QueueHandle<State>,
     touch_module: Option<usize>,
     touch_position: (f64, f64),
@@ -75,11 +74,19 @@ pub struct Drawer {
     frame_pending: bool,
     renderer: Renderer,
     scale_factor: f64,
+    visible: bool,
     size: Size,
 }
 
 impl Drawer {
-    pub fn new(queue: QueueHandle<State>, egl_config: &Config) -> Result<Self> {
+    pub fn new(
+        queue: QueueHandle<State>,
+        fractional_scale: &FractionalScaleManager,
+        compositor: &CompositorState,
+        viewporter: &Viewporter,
+        layer: &LayerShell,
+        egl_config: &Config,
+    ) -> Result<Self> {
         // Default to 1x1 initial size since 0x0 EGL surfaces are illegal.
         let size = Size { width: 1, height: 1 };
 
@@ -90,11 +97,43 @@ impl Drawer {
         let egl_context =
             unsafe { egl_config.display().create_context(egl_config, &context_attribules)? };
 
+        // Create the Wayland surface.
+        let surface = compositor.create_surface(&queue);
+
+        let window = NonNull::new(surface.id().as_ptr().cast()).unwrap();
+        let wayland_window_handle = WaylandWindowHandle::new(window);
+        let raw_window_handle = RawWindowHandle::Wayland(wayland_window_handle);
+
+        // Create the EGL surface.
+        let surface_attributes = SurfaceAttributesBuilder::<WindowSurface>::new().build(
+            raw_window_handle,
+            NonZeroU32::new(size.width as u32).unwrap(),
+            NonZeroU32::new(size.height as u32).unwrap(),
+        );
+
+        // Create the EGL surface.
+        let egl_surface =
+            unsafe { egl_config.display().create_window_surface(egl_config, &surface_attributes)? };
+
+        // Setup layer shell surface.
+        let window =
+            layer.create_layer_surface(&queue, surface, Layer::Overlay, Some("panel"), None);
+        window.set_anchor(Anchor::LEFT | Anchor::TOP | Anchor::RIGHT | Anchor::BOTTOM);
+        window.set_exclusive_zone(-1);
+
         // Initialize the renderer.
-        let renderer = Renderer::new(egl_context, 1.)?;
+        let renderer = Renderer::new(egl_context, egl_surface, 1.)?;
+
+        // Initialize fractional scaling protocol.
+        fractional_scale.fractional_scaling(&queue, window.wl_surface());
+
+        // Initialize viewporter protocol.
+        let viewport = viewporter.viewport(&queue, window.wl_surface());
 
         Ok(Self {
             renderer,
+            viewport,
+            window,
             queue,
             size,
             scale_factor: 1.,
@@ -105,58 +144,33 @@ impl Drawer {
             opening_icon: Default::default(),
             closing_icon: Default::default(),
             offsetting: Default::default(),
-            viewport: Default::default(),
             touch_id: Default::default(),
+            visible: Default::default(),
             offset: Default::default(),
-            window: Default::default(),
         })
     }
 
-    /// Create the window.
+    /// Show the drawer window.
     pub fn show(
         &mut self,
-        fractional_scale: &FractionalScaleManager,
         compositor: &CompositorState,
-        viewporter: &Viewporter,
-        layer: &LayerShell,
+        modules: &mut [&mut dyn Module],
+        opening: bool,
     ) -> Result<()> {
-        // Ensure the window is not mapped yet.
-        if self.window.is_some() {
-            return Ok(());
-        }
+        self.visible = true;
 
-        // Create the Wayland surface.
-        let surface = compositor.create_surface(&self.queue);
-
-        // Setup layer shell surface.
-        let window =
-            layer.create_layer_surface(&self.queue, surface, Layer::Overlay, Some("panel"), None);
-        window.set_anchor(Anchor::LEFT | Anchor::TOP | Anchor::RIGHT | Anchor::BOTTOM);
-        window.set_exclusive_zone(-1);
-
-        // Initialize fractional scaling protocol.
-        fractional_scale.fractional_scaling(&self.queue, window.wl_surface());
-
-        // Initialize viewporter protocol.
-        let viewport = viewporter.viewport(&self.queue, window.wl_surface());
-
-        // Set initial viewport size based on last resize.
-        let logical_size = self.size / self.scale_factor;
-        viewport.set_destination(logical_size.width, logical_size.height);
-
-        // Reset frame request tracking since we created a new surface.
-        self.frame_pending = false;
-
-        self.viewport = Some(viewport);
-        self.window = Some(window);
-
-        Ok(())
+        // Immediately render the first frame.
+        self.draw(compositor, modules, opening)
     }
 
-    /// Destroy the window.
+    /// Hide the drawer window.
     pub fn hide(&mut self) {
-        self.renderer.set_surface(None);
-        self.window = None;
+        self.visible = false;
+
+        // Immediately detach the buffer, hiding the window.
+        let surface = self.window.wl_surface();
+        surface.attach(None, 0, 0);
+        surface.commit();
     }
 
     /// Render the panel.
@@ -168,13 +182,16 @@ impl Drawer {
     ) -> Result<()> {
         self.frame_pending = false;
 
+        // Never attach new buffers while hidden.
+        if !self.visible {
+            return Ok(());
+        }
+
         // Update drawer open/close animation.
         self.animate_drawer(opening);
         if self.last_animation_frame.is_some() {
-            if let Some(window) = &self.window {
-                let surface = window.wl_surface();
-                surface.frame(&self.queue, surface.clone());
-            }
+            let surface = self.window.wl_surface();
+            surface.frame(&self.queue, surface.clone());
         }
 
         // Clamp offset, to ensure minimize works immediately.
@@ -191,15 +208,14 @@ impl Drawer {
         }
 
         // Update opaque region.
-        let region = Region::new(compositor).ok();
-        if let Some((window, region)) = self.window.as_ref().zip(region) {
+        if let Ok(region) = Region::new(compositor) {
             // Calculate vertical opaque region start.
             let logical_size = self.size / self.scale_factor;
             let drawer_height = logical_size.height - PANEL_HEIGHT;
             let y = (self.offset - drawer_height as f64).max(0.).round() as i32;
 
             region.add(0, y, logical_size.width, self.offset.round() as i32);
-            window.wl_surface().set_opaque_region(Some(region.wl_region()));
+            self.window.wl_surface().set_opaque_region(Some(region.wl_region()));
         }
 
         self.renderer.draw(|renderer| unsafe {
@@ -258,13 +274,17 @@ impl Drawer {
 
     /// Check if the panel owns this surface.
     pub fn owns_surface(&self, surface: &WlSurface) -> bool {
-        self.window.as_ref().is_some_and(|window| window.wl_surface() == surface)
+        self.window.wl_surface() == surface
     }
 
     /// Update the DPI scale factor.
     pub fn set_scale_factor(&mut self, scale_factor: f64) {
         let factor_change = scale_factor / self.scale_factor;
         self.scale_factor = scale_factor;
+
+        // Force icon redraw on scale change.
+        self.closing_icon = None;
+        self.opening_icon = None;
 
         self.resize(self.size * factor_change);
     }
@@ -280,13 +300,12 @@ impl Drawer {
     /// Request a new frame.
     pub fn request_frame(&mut self) {
         // Ensure window is mapped without pending frame.
-        let window = match &self.window {
-            Some(window) if !self.frame_pending => window,
-            _ => return,
-        };
+        if self.frame_pending {
+            return;
+        }
         self.frame_pending = true;
 
-        let surface = window.wl_surface();
+        let surface = self.window.wl_surface();
         surface.frame(&self.queue, surface.clone());
         surface.commit();
     }
@@ -426,52 +445,16 @@ impl Drawer {
     fn resize(&mut self, size: Size) {
         self.size = size;
 
-        self.resize_surface(size);
-
         // Update viewporter buffer target size.
         let logical_size = size / self.scale_factor;
-        if let Some(viewport) = &self.viewport {
-            viewport.set_destination(logical_size.width, logical_size.height);
-        }
+        self.viewport.set_destination(logical_size.width, logical_size.height);
 
         // Ensure drawer stays fully open after resize.
         if !self.offsetting && self.offset > 0. {
             self.offset = self.max_offset();
         }
-    }
 
-    /// Resize EGL surface, dynamically initializing it on first resize.
-    fn resize_surface(&mut self, size: Size) {
-        // Resize if the surface exists already.
-        if self.renderer.has_surface() {
-            let _ = self.renderer.resize(size, self.scale_factor);
-            self.closing_icon = None;
-            self.opening_icon = None;
-            return;
-        }
-
-        // Otherwise create a new EGL surface of the desired size.
-
-        let window = match &self.window {
-            Some(window) => window,
-            None => return,
-        };
-
-        // Get raw window handle.
-        let window = NonNull::new(window.wl_surface().id().as_ptr().cast()).unwrap();
-        let wayland_window_handle = WaylandWindowHandle::new(window);
-        let raw_window_handle = RawWindowHandle::Wayland(wayland_window_handle);
-
-        let config = self.renderer.egl_context().config();
-        let surface_attributes = SurfaceAttributesBuilder::<WindowSurface>::new().build(
-            raw_window_handle,
-            NonZeroU32::new(size.width as u32).unwrap(),
-            NonZeroU32::new(size.height as u32).unwrap(),
-        );
-
-        let display = config.display();
-        let egl_surface = unsafe { display.create_window_surface(&config, &surface_attributes) };
-        self.renderer.set_surface(egl_surface.ok());
+        let _ = self.renderer.resize(size, self.scale_factor);
     }
 }
 

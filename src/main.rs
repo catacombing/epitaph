@@ -188,16 +188,23 @@ impl State {
 
         // Setup panel window.
         self.panel = Some(Panel::new(
+            queue.handle(),
             &self.protocol_states.fractional_scale,
             &self.protocol_states.compositor,
             &self.protocol_states.viewporter,
-            queue.handle(),
             &self.protocol_states.layer,
             &egl_config,
         )?);
 
         // Setup drawer window.
-        self.drawer = Some(Drawer::new(queue.handle(), &egl_config)?);
+        self.drawer = Some(Drawer::new(
+            queue.handle(),
+            &self.protocol_states.fractional_scale,
+            &self.protocol_states.compositor,
+            &self.protocol_states.viewporter,
+            &self.protocol_states.layer,
+            &egl_config,
+        )?);
 
         Ok(())
     }
@@ -205,15 +212,15 @@ impl State {
     /// Draw window associated with the surface.
     fn draw(&mut self, surface: &WlSurface) {
         if self.panel().owns_surface(surface) {
-            if let Err(error) = self.panel.as_mut().unwrap().draw(&self.modules.as_slice()) {
-                eprintln!("Panel rendering failed: {error:?}");
+            if let Err(err) = self.panel.as_mut().unwrap().draw(&self.modules.as_slice()) {
+                eprintln!("Panel rendering failed: {err}");
             }
         } else if self.drawer().owns_surface(surface) {
             let compositor = &self.protocol_states.compositor;
             let modules = &mut self.modules.as_slice_mut();
             let drawer = self.drawer.as_mut().unwrap();
-            if let Err(error) = drawer.draw(compositor, modules, self.drawer_opening) {
-                eprintln!("Drawer rendering failed: {error:?}");
+            if let Err(err) = drawer.draw(compositor, modules, self.drawer_opening) {
+                eprintln!("Drawer rendering failed: {err}");
             }
         }
     }
@@ -427,12 +434,10 @@ impl TouchHandler for State {
         let panel = self.panel.as_ref().unwrap();
 
         if self.active_touch.is_none() && panel.owns_surface(&surface) {
-            let fractional_scale = &self.protocol_states.fractional_scale;
             let compositor = &self.protocol_states.compositor;
-            let viewporter = &self.protocol_states.viewporter;
-            let layer_state = &mut self.protocol_states.layer;
-            if let Err(err) = drawer.show(fractional_scale, compositor, viewporter, layer_state) {
-                eprintln!("Error: Couldn't open drawer: {err}");
+            let modules = &mut self.modules.as_slice_mut();
+            if let Err(err) = drawer.show(compositor, modules, self.drawer_opening) {
+                eprintln!("Drawer opening failed: {err}");
             }
 
             self.last_touch_y = position.1;

@@ -37,13 +37,17 @@ pub struct Renderer {
     pub scale_factor: f64,
     pub size: Size<f32>,
 
-    egl_surface: Option<Surface<WindowSurface>>,
+    egl_surface: Surface<WindowSurface>,
     egl_context: PossiblyCurrentContext,
 }
 
 impl Renderer {
     /// Initialize a new renderer.
-    pub fn new(egl_context: NotCurrentContext, scale_factor: f64) -> Result<Self> {
+    pub fn new(
+        egl_context: NotCurrentContext,
+        egl_surface: Surface<WindowSurface>,
+        scale_factor: f64,
+    ) -> Result<Self> {
         unsafe {
             // Enable the OpenGL context.
             let egl_context = egl_context.make_current_surfaceless()?;
@@ -57,11 +61,11 @@ impl Renderer {
 
             Ok(Renderer {
                 scale_factor,
+                egl_surface,
                 egl_context,
                 rasterizer: GlRasterizer::new(FONT, font_size, scale_factor)?,
                 text_batcher: Default::default(),
                 rect_batcher: Default::default(),
-                egl_surface: Default::default(),
                 size: Default::default(),
             })
         }
@@ -72,13 +76,11 @@ impl Renderer {
         // XXX: Resize here **must** be performed before making the EGL context current,
         // to avoid locking the back buffer and delaying the resize by one
         // frame.
-        if let Some(egl_surface) = &self.egl_surface {
-            egl_surface.resize(
-                &self.egl_context,
-                NonZeroU32::new(size.width as u32).unwrap(),
-                NonZeroU32::new(size.height as u32).unwrap(),
-            );
-        }
+        self.egl_surface.resize(
+            &self.egl_context,
+            NonZeroU32::new(size.width as u32).unwrap(),
+            NonZeroU32::new(size.height as u32).unwrap(),
+        );
 
         self.bind()?;
 
@@ -112,38 +114,15 @@ impl Renderer {
 
         unsafe { gl::Flush() };
 
-        if let Some(egl_surface) = &self.egl_surface {
-            egl_surface.swap_buffers(&self.egl_context)?;
-        }
+        self.egl_surface.swap_buffers(&self.egl_context)?;
 
         Ok(())
     }
 
-    /// Get the renderer's EGL context.
-    pub fn egl_context(&self) -> &PossiblyCurrentContext {
-        &self.egl_context
-    }
-
-    /// Update the renderer's active EGL surface.
-    pub fn set_surface(&mut self, egl_surface: Option<Surface<WindowSurface>>) {
-        self.egl_surface = egl_surface;
-    }
-
-    /// Check if the EGL surface is initialized.
-    pub fn has_surface(&self) -> bool {
-        self.egl_surface.is_some()
-    }
-
     /// Bind this renderer's program and buffers.
-    fn bind(&self) -> Result<&Surface<WindowSurface>> {
-        let egl_surface = match &self.egl_surface {
-            Some(egl_surface) => egl_surface,
-            None => return Err("Attempted to bind EGL context without surface".into()),
-        };
-
-        self.egl_context.make_current(egl_surface)?;
-
-        Ok(egl_surface)
+    fn bind(&self) -> Result<()> {
+        self.egl_context.make_current(&self.egl_surface)?;
+        Ok(())
     }
 }
 
