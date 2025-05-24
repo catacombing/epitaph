@@ -2,7 +2,10 @@
 
 use std::num::NonZeroU32;
 use std::ptr::NonNull;
+use std::time::Duration;
 
+use calloop::timer::{TimeoutAction, Timer};
+use calloop::{LoopHandle, RegistrationToken};
 use crossfont::Metrics;
 use glutin::api::egl::config::Config;
 use glutin::context::{ContextApi, ContextAttributesBuilder, Version};
@@ -19,6 +22,7 @@ use smithay_client_toolkit::shell::wlr_layer::{
     Anchor, Layer, LayerShell, LayerSurface, LayerSurfaceConfigure,
 };
 
+use crate::config::colors::{BG, Color};
 use crate::module::{Alignment, Module, PanelModuleContent};
 use crate::protocols::fractional_scale::FractionalScaleManager;
 use crate::protocols::viewporter::Viewporter;
@@ -39,7 +43,11 @@ const MODULE_PADDING: f64 = 5.;
 /// Panel padding to the screen edges.
 const EDGE_PADDING: f64 = 5.;
 
+/// Duration after which background activity will be hidden agani.
+const BACKGROUND_ACTIVITY_TIMEOUT: Duration = Duration::from_millis(1000);
+
 pub struct Panel {
+    event_loop: LoopHandle<'static, State>,
     queue: QueueHandle<State>,
     viewport: WpViewport,
     window: LayerSurface,
@@ -47,11 +55,16 @@ pub struct Panel {
     renderer: Renderer,
     scale_factor: f64,
     size: Size,
+
+    background_activity_timeout: Option<RegistrationToken>,
+    background_activity: Option<(Color, f64)>,
+    last_background_activity: Vec<f64>,
 }
 
 impl Panel {
     pub fn new(
         queue: QueueHandle<State>,
+        event_loop: LoopHandle<'static, State>,
         fractional_scale: &FractionalScaleManager,
         compositor: &CompositorState,
         viewporter: &Viewporter,
@@ -103,22 +116,57 @@ impl Panel {
         // Initialize viewporter protocol.
         let viewport = viewporter.viewport(&queue, window.wl_surface());
 
-        Ok(Self { viewport, renderer, window, queue, size, frame_pending: false, scale_factor: 1. })
+        Ok(Self {
+            event_loop,
+            viewport,
+            renderer,
+            window,
+            queue,
+            size,
+            frame_pending: false,
+            scale_factor: 1.,
+            background_activity_timeout: Default::default(),
+            last_background_activity: Default::default(),
+            background_activity: Default::default(),
+        })
     }
 
     /// Render the panel.
     pub fn draw(&mut self, modules: &[&dyn Module]) -> Result<()> {
         self.frame_pending = false;
 
-        self.renderer.draw(|renderer| unsafe {
-            gl::Clear(gl::COLOR_BUFFER_BIT);
+        self.update_background_activity(modules);
+
+        self.renderer.draw(|renderer| {
+            // Always draw default background.
+            let [r, g, b] = BG.as_f32();
+            unsafe {
+                gl::ClearColor(r, g, b, 1.);
+                gl::Clear(gl::COLOR_BUFFER_BIT);
+            }
+
+            // Partially change background color based on the activity module.
+            if let Some((color, value)) = self.background_activity {
+                unsafe {
+                    let width = (self.size.width as f64 * value).round() as i32;
+                    let [r, g, b] = color.as_f32();
+
+                    gl::Enable(gl::SCISSOR_TEST);
+                    gl::Scissor(0, 0, width, self.size.height);
+
+                    gl::ClearColor(r, g, b, 1.);
+                    gl::Clear(gl::COLOR_BUFFER_BIT);
+
+                    gl::Disable(gl::SCISSOR_TEST);
+                }
+            }
 
             Self::draw_modules(renderer, modules, renderer.size)
         })
     }
 
     /// Render just the panel modules.
-    pub fn draw_modules(
+    fn draw_modules(
         renderer: &mut Renderer,
         modules: &[&dyn Module],
         size: Size<f32>,
@@ -135,6 +183,30 @@ impl Panel {
             run.draw();
         }
         Ok(())
+    }
+
+    /// Update current status of the background activity bar.
+    fn update_background_activity(&mut self, modules: &[&dyn Module]) {
+        // Ensure activite cache has the correct size.
+        self.last_background_activity.resize(modules.len(), 0.);
+
+        // Find the first module that changed since the last frame.
+        for (i, module) in modules.iter().enumerate().rev() {
+            let module = match module.panel_background_module() {
+                Some(module) => module,
+                None => continue,
+            };
+
+            let value = module.value();
+            if self.last_background_activity[i] != value {
+                self.background_activity = Some((module.color(), value));
+                self.last_background_activity[i] = value;
+            }
+        }
+
+        if self.background_activity.is_some() {
+            self.restart_background_timeout();
+        }
     }
 
     /// Check if the panel owns this surface.
@@ -185,6 +257,27 @@ impl Panel {
         }
 
         let _ = self.renderer.resize(size, self.scale_factor);
+    }
+
+    /// Reset the background activity bar.
+    pub fn clear_background_activity(&mut self) {
+        self.background_activity = None;
+    }
+
+    /// (Re)start timer for the background activity bar.
+    fn restart_background_timeout(&mut self) {
+        // Cancel existing timer.
+        if let Some(timeout) = self.background_activity_timeout.take() {
+            self.event_loop.remove(timeout);
+        }
+
+        // Stage new timeout.
+        let timer = Timer::from_duration(BACKGROUND_ACTIVITY_TIMEOUT);
+        let timeout = self.event_loop.insert_source(timer, move |_, _, state| {
+            state.clear_background_activity();
+            TimeoutAction::Drop
+        });
+        self.background_activity_timeout = timeout.ok();
     }
 }
 

@@ -45,6 +45,7 @@ use crate::module::date::Date;
 use crate::module::flashlight::Flashlight;
 use crate::module::orientation::Orientation;
 use crate::module::scale::Scale;
+use crate::module::volume::Volume;
 use crate::module::wifi::Wifi;
 use crate::panel::{PANEL_HEIGHT, Panel};
 use crate::protocols::fractional_scale::{FractionalScaleHandler, FractionalScaleManager};
@@ -189,6 +190,7 @@ impl State {
         // Setup panel window.
         self.panel = Some(Panel::new(
             queue.handle(),
+            self.event_loop.clone(),
             &self.protocol_states.fractional_scale,
             &self.protocol_states.compositor,
             &self.protocol_states.viewporter,
@@ -243,6 +245,12 @@ impl State {
             drawer.offset = 0.;
             drawer.hide();
         }
+    }
+
+    /// Remove the panel's background activity bar.
+    fn clear_background_activity(&mut self) {
+        self.panel().clear_background_activity();
+        self.request_frame();
     }
 
     fn drawer(&mut self) -> &mut Drawer {
@@ -624,6 +632,7 @@ struct Modules {
     flashlight: Flashlight,
     cellular: Cellular,
     battery: Battery,
+    volume: Volume,
     scale: Scale,
     clock: Clock,
     wifi: Wifi,
@@ -638,6 +647,7 @@ impl Modules {
             flashlight: Flashlight::new(),
             cellular: Cellular::new(event_loop)?,
             battery: Battery::new(event_loop)?,
+            volume: Volume::new(event_loop)?,
             clock: Clock::new(event_loop)?,
             wifi: Wifi::new(event_loop)?,
             scale: Scale::new(),
@@ -646,7 +656,7 @@ impl Modules {
     }
 
     /// Get all modules as sorted immutable slice.
-    fn as_slice(&self) -> [&dyn Module; 9] {
+    fn as_slice(&self) -> [&dyn Module; 10] {
         [
             &self.brightness,
             &self.scale,
@@ -657,11 +667,12 @@ impl Modules {
             &self.orientation,
             &self.flashlight,
             &self.date,
+            &self.volume,
         ]
     }
 
     /// Get all modules as sorted mutable slice.
-    fn as_slice_mut(&mut self) -> [&mut dyn Module; 9] {
+    fn as_slice_mut(&mut self) -> [&mut dyn Module; 10] {
         [
             &mut self.brightness,
             &mut self.scale,
@@ -672,6 +683,7 @@ impl Modules {
             &mut self.orientation,
             &mut self.flashlight,
             &mut self.date,
+            &mut self.volume,
         ]
     }
 }

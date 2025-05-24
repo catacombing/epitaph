@@ -82,7 +82,7 @@ impl Slider for Brightness {
         Ok(())
     }
 
-    fn get_value(&self) -> f64 {
+    fn value(&self) -> f64 {
         self.brightness
     }
 

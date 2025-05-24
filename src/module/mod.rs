@@ -1,6 +1,7 @@
 //! Panel modules.
 
 use crate::Result;
+use crate::config::colors::Color;
 use crate::text::Svg;
 
 pub mod battery;
@@ -11,12 +12,18 @@ pub mod date;
 pub mod flashlight;
 pub mod orientation;
 pub mod scale;
+pub mod volume;
 pub mod wifi;
 
 /// Panel module.
 pub trait Module {
     /// Panel module implementation.
     fn panel_module(&self) -> Option<&dyn PanelModule> {
+        None
+    }
+
+    /// Panel background module implementation.
+    fn panel_background_module(&self) -> Option<&dyn PanelBackgroundModule> {
         None
     }
 
@@ -49,6 +56,18 @@ pub enum PanelModuleContent {
     Svg(Svg),
 }
 
+/// Panel background module.
+///
+/// These modules use the panel background to indicate new activity of a module
+/// between 0% and 100% by partially changing the panel's background color.
+pub trait PanelBackgroundModule {
+    /// Current status between 0.0 and 1.0.
+    fn value(&self) -> f64;
+
+    /// Background color.
+    fn color(&self) -> Color;
+}
+
 /// Module in the drawer.
 pub enum DrawerModule<'a> {
     Toggle(&'a mut dyn Toggle),
@@ -69,7 +88,7 @@ pub trait Slider {
     }
 
     /// Get current slider value.
-    fn get_value(&self) -> f64;
+    fn value(&self) -> f64;
 
     /// Get symbol for this slider.
     fn svg(&self) -> Svg;

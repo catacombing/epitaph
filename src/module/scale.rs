@@ -43,7 +43,7 @@ impl Slider for Scale {
         Ok(())
     }
 
-    fn get_value(&self) -> f64 {
+    fn value(&self) -> f64 {
         // Map back from `1..=3` to `0..=1`.
         (self.scale - 1.) / 2.
     }

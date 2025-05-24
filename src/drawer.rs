@@ -527,7 +527,7 @@ impl<'a> DrawerRun<'a> {
         }
 
         // Stage slider vertices.
-        let slider_width = (width as f64 * slider.get_value()) as i16;
+        let slider_width = (width as f64 * slider.value()) as i16;
         let slider =
             RectVertex::new(window_width, window_height, x, y, slider_width, height, MODULE_ACTIVE);
         for vertex in slider {
