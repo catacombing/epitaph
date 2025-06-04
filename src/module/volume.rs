@@ -67,7 +67,10 @@ impl Module for Volume {
 impl PanelBackgroundModule for Volume {
     fn value(&self) -> f64 {
         let volume = self.volume.load(Ordering::Relaxed);
-        (volume % 100) as f64 / 100.
+        let modded = (volume % 100) as f64 / 100.;
+
+        // Show 100% value for multiples of 100%, rather than 0%.
+        if volume > 0 && modded == 0. { 100. } else { modded }
     }
 
     fn color(&self) -> Color {
