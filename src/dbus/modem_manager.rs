@@ -163,7 +163,7 @@ async fn run_dbus_loop(tx: Sender<ModemConnection>) -> Result<(), Box<dyn Error>
 }
 
 /// Create object manager for tracking DBus modem objects
-async fn object_manager(connection: &Connection) -> zbus::Result<ObjectManagerProxy> {
+async fn object_manager(connection: &Connection) -> zbus::Result<ObjectManagerProxy<'_>> {
     ObjectManagerProxy::builder(connection)
         .destination("org.freedesktop.ModemManager1")?
         .path("/org/freedesktop/ModemManager1")?
@@ -216,7 +216,7 @@ async fn primary_modem_streams<'a>(
 async fn modem_from_path(
     connection: &Connection,
     device_path: OwnedObjectPath,
-) -> zbus::Result<ModemProxy> {
+) -> zbus::Result<ModemProxy<'_>> {
     ModemProxy::builder(connection).path(device_path)?.build().await
 }
 
@@ -224,7 +224,7 @@ async fn modem_from_path(
 async fn modem3gpp_from_path(
     connection: &Connection,
     device_path: OwnedObjectPath,
-) -> zbus::Result<Modem3gppProxy> {
+) -> zbus::Result<Modem3gppProxy<'_>> {
     Modem3gppProxy::builder(connection).path(device_path)?.build().await
 }
 

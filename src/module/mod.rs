@@ -28,7 +28,7 @@ pub trait Module {
     }
 
     /// Drawer module implementation.
-    fn drawer_module(&mut self) -> Option<DrawerModule> {
+    fn drawer_module(&mut self) -> Option<DrawerModule<'_>> {
         None
     }
 }

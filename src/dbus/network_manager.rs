@@ -201,7 +201,7 @@ async fn active_wireless_device<'a>(
 async fn wireless_device_from_path(
     connection: &Connection,
     device_path: OwnedObjectPath,
-) -> Option<WirelessDeviceProxy> {
+) -> Option<WirelessDeviceProxy<'_>> {
     // Resolve as generic device first.
     let device = DeviceProxy::builder(connection).path(&device_path).ok()?.build().await.ok()?;
 

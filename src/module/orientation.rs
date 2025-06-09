@@ -17,7 +17,7 @@ impl Orientation {
 }
 
 impl Module for Orientation {
-    fn drawer_module(&mut self) -> Option<DrawerModule> {
+    fn drawer_module(&mut self) -> Option<DrawerModule<'_>> {
         Some(DrawerModule::Toggle(self))
     }
 }

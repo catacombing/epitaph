@@ -44,7 +44,7 @@ impl Brightness {
 }
 
 impl Module for Brightness {
-    fn drawer_module(&mut self) -> Option<DrawerModule> {
+    fn drawer_module(&mut self) -> Option<DrawerModule<'_>> {
         Some(DrawerModule::Slider(self))
     }
 }
