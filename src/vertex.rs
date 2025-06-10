@@ -2,7 +2,7 @@
 
 use std::{cmp, mem, ptr};
 
-use crate::config::colors::Color;
+use crate::config::Color;
 use crate::gl;
 use crate::gl::types::GLuint;
 use crate::renderer::RenderProgram;

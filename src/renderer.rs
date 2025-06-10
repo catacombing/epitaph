@@ -10,8 +10,7 @@ use glutin::api::egl::surface::Surface;
 use glutin::prelude::*;
 use glutin::surface::WindowSurface;
 
-use crate::config::colors::BG;
-use crate::config::font::{FONT, FONT_SIZE};
+use crate::config::Config;
 use crate::gl::types::{GLenum, GLfloat, GLshort, GLuint};
 use crate::text::GlRasterizer;
 use crate::vertex::{GlyphVertex, RectVertex, VertexBatcher};
@@ -44,6 +43,7 @@ pub struct Renderer {
 impl Renderer {
     /// Initialize a new renderer.
     pub fn new(
+        config: &Config,
         egl_context: NotCurrentContext,
         egl_surface: Surface<WindowSurface>,
         scale_factor: f64,
@@ -52,18 +52,14 @@ impl Renderer {
             // Enable the OpenGL context.
             let egl_context = egl_context.make_current_surfaceless()?;
 
-            // Set background color and blending.
-            let [r, g, b] = BG.as_f32();
-            gl::ClearColor(r, g, b, 1.);
             gl::Enable(gl::BLEND);
 
-            let font_size = FontSize::new(FONT_SIZE);
-
+            let font_size = FontSize::new(config.font.size);
             Ok(Renderer {
                 scale_factor,
                 egl_surface,
                 egl_context,
-                rasterizer: GlRasterizer::new(FONT, font_size, scale_factor)?,
+                rasterizer: GlRasterizer::new(&config.font.family, font_size, scale_factor)?,
                 text_batcher: Default::default(),
                 rect_batcher: Default::default(),
                 size: Default::default(),

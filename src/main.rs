@@ -6,10 +6,12 @@ use std::ptr::NonNull;
 use std::result::Result as StdResult;
 use std::time::Instant;
 
+use calloop::ping::{self, Ping};
 use calloop::timer::{TimeoutAction, Timer};
 use calloop::{EventLoop, LoopHandle, RegistrationToken};
 use calloop_wayland_source::WaylandSource;
 use catacomb_ipc::{self, DpmsState, IpcMessage};
+use configory::{EventHandler as ConfigEventHandler, Manager, Options as ManagerOptions};
 use glutin::api::egl::display::Display;
 use glutin::config::ConfigTemplateBuilder;
 use glutin::prelude::*;
@@ -34,7 +36,7 @@ use smithay_client_toolkit::{
     delegate_touch, registry_handlers,
 };
 
-use crate::config::input::{MAX_DOUBLE_TAP_DURATION, MAX_TAP_DISTANCE};
+use crate::config::Config;
 use crate::drawer::{Drawer, HANDLE_HEIGHT};
 use crate::module::Module;
 use crate::module::battery::Battery;
@@ -86,9 +88,23 @@ fn main() {
     // Initialize calloop event loop.
     let mut event_loop = EventLoop::try_new().expect("initialize event loop");
 
+    // Initialize configuration manager.
+    let (ping, config_source) = ping::make_ping().expect("create config source");
+    let config_notify = ConfigNotify { ping };
+    let config_options = ManagerOptions::new("epitaph").notify(true);
+    let config_manager =
+        Manager::with_options(&config_options, config_notify).expect("config init");
+    event_loop
+        .handle()
+        .insert_source(config_source, |_, _, state: &mut State| {
+            state.reload_config();
+            state.request_frame();
+        })
+        .expect("register config source");
+
     // Setup shared state.
-    let mut state =
-        State::new(&connection, &globals, &queue, event_loop.handle()).expect("state setup");
+    let mut state = State::new(config_manager, &connection, &globals, &queue, event_loop.handle())
+        .expect("state setup");
 
     // Insert wayland source into calloop loop.
     let wayland_source = WaylandSource::new(connection, queue);
@@ -120,10 +136,14 @@ pub struct State {
     touch: Option<WlTouch>,
     drawer: Option<Drawer>,
     panel: Option<Panel>,
+
+    config_manager: Manager,
+    config: Config,
 }
 
 impl State {
     fn new(
+        config_manager: Manager,
         connection: &Connection,
         globals: &GlobalList,
         queue: &EventQueue<Self>,
@@ -141,6 +161,7 @@ impl State {
 
         let mut state = Self {
             protocol_states,
+            config_manager,
             event_loop,
             modules,
             reaper,
@@ -152,10 +173,14 @@ impl State {
             tap_timeout: Default::default(),
             terminated: Default::default(),
             last_tap: Default::default(),
+            config: Default::default(),
             drawer: Default::default(),
             touch: Default::default(),
             panel: Default::default(),
         };
+
+        // Load initial config.
+        state.reload_config();
 
         state.init_windows(connection, queue)?;
 
@@ -189,24 +214,16 @@ impl State {
 
         // Setup panel window.
         self.panel = Some(Panel::new(
+            &self.config,
             queue.handle(),
             self.event_loop.clone(),
-            &self.protocol_states.fractional_scale,
-            &self.protocol_states.compositor,
-            &self.protocol_states.viewporter,
-            &self.protocol_states.layer,
+            &self.protocol_states,
             &egl_config,
         )?);
 
         // Setup drawer window.
-        self.drawer = Some(Drawer::new(
-            queue.handle(),
-            &self.protocol_states.fractional_scale,
-            &self.protocol_states.compositor,
-            &self.protocol_states.viewporter,
-            &self.protocol_states.layer,
-            &egl_config,
-        )?);
+        self.drawer =
+            Some(Drawer::new(&self.config, queue.handle(), &self.protocol_states, &egl_config)?);
 
         Ok(())
     }
@@ -214,14 +231,16 @@ impl State {
     /// Draw window associated with the surface.
     fn draw(&mut self, surface: &WlSurface) {
         if self.panel().owns_surface(surface) {
-            if let Err(err) = self.panel.as_mut().unwrap().draw(&self.modules.as_slice()) {
+            if let Err(err) =
+                self.panel.as_mut().unwrap().draw(&self.config, &self.modules.as_slice())
+            {
                 eprintln!("Panel rendering failed: {err}");
             }
         } else if self.drawer().owns_surface(surface) {
             let compositor = &self.protocol_states.compositor;
             let modules = &mut self.modules.as_slice_mut();
             let drawer = self.drawer.as_mut().unwrap();
-            if let Err(err) = drawer.draw(compositor, modules, self.drawer_opening) {
+            if let Err(err) = drawer.draw(&self.config, compositor, modules, self.drawer_opening) {
                 eprintln!("Drawer rendering failed: {err}");
             }
         }
@@ -251,6 +270,15 @@ impl State {
     fn clear_background_activity(&mut self) {
         self.panel().clear_background_activity();
         self.request_frame();
+    }
+
+    /// Reload the configuration.
+    fn reload_config(&mut self) {
+        match self.config_manager.get::<&str, Config>(&[]) {
+            Ok(config) => self.config = config.unwrap_or_default(),
+            // Avoid resetting active config on error.
+            Err(err) => eprintln!("Config error: {err}"),
+        }
     }
 
     fn drawer(&mut self) -> &mut Drawer {
@@ -444,7 +472,7 @@ impl TouchHandler for State {
         if self.active_touch.is_none() && panel.owns_surface(&surface) {
             let compositor = &self.protocol_states.compositor;
             let modules = &mut self.modules.as_slice_mut();
-            if let Err(err) = drawer.show(compositor, modules, self.drawer_opening) {
+            if let Err(err) = drawer.show(&self.config, compositor, modules, self.drawer_opening) {
                 eprintln!("Drawer opening failed: {err}");
             }
 
@@ -487,7 +515,8 @@ impl TouchHandler for State {
 
             // Handle short taps.
             if !drawer.offsetting {
-                if last_tap.is_some_and(|tap| tap.elapsed() <= MAX_DOUBLE_TAP_DURATION) {
+                let multi_tap_interval = self.config.input.multi_tap_interval;
+                if last_tap.is_some_and(|tap| tap.elapsed() <= multi_tap_interval) {
                     // Remove delayed single-tap callback.
                     if let Some(source) = self.tap_timeout.take() {
                         self.event_loop.remove(source);
@@ -501,7 +530,7 @@ impl TouchHandler for State {
                 } else if self.touch_start.1 <= PANEL_HEIGHT as f64 {
                     // Stage delayed single-tap for taps on the top panel.
                     let drawer_opening = self.drawer_opening;
-                    let timer = Timer::from_duration(MAX_DOUBLE_TAP_DURATION);
+                    let timer = Timer::from_duration(multi_tap_interval);
                     let source = self.event_loop.insert_source(timer, move |_, _, state| {
                         state.set_drawer_status(drawer_opening);
                         TimeoutAction::Drop
@@ -542,7 +571,7 @@ impl TouchHandler for State {
             // Ignore touch motion until drag threshold is reached.
             let x_delta = position.0 - self.touch_start.0;
             let y_delta = position.1 - self.touch_start.1;
-            if x_delta.powi(2) + y_delta.powi(2) <= MAX_TAP_DISTANCE {
+            if x_delta.powi(2) + y_delta.powi(2) <= self.config.input.max_tap_distance {
                 return;
             }
 
@@ -685,6 +714,17 @@ impl Modules {
             &mut self.date,
             &mut self.volume,
         ]
+    }
+}
+
+/// Configuration file update handler.
+struct ConfigNotify {
+    ping: Ping,
+}
+
+impl ConfigEventHandler<()> for ConfigNotify {
+    fn file_changed(&self, _config: &configory::Config) {
+        self.ping.ping();
     }
 }
 

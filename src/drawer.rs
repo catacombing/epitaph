@@ -4,7 +4,7 @@ use std::num::NonZeroU32;
 use std::ptr::NonNull;
 use std::time::Instant;
 
-use glutin::api::egl::config::Config;
+use glutin::api::egl::config::Config as EglConfig;
 use glutin::context::{ContextApi, ContextAttributesBuilder, Version};
 use glutin::display::GetGlDisplay;
 use glutin::prelude::*;
@@ -16,18 +16,16 @@ use smithay_client_toolkit::reexports::client::{Proxy, QueueHandle};
 use smithay_client_toolkit::reexports::protocols::wp::viewporter::client::wp_viewport::WpViewport;
 use smithay_client_toolkit::shell::WaylandSurface;
 use smithay_client_toolkit::shell::wlr_layer::{
-    Anchor, Layer, LayerShell, LayerSurface, LayerSurfaceConfigure,
+    Anchor, Layer, LayerSurface, LayerSurfaceConfigure,
 };
 
-use crate::config::colors::{BG, MODULE_ACTIVE, MODULE_INACTIVE};
+use crate::config::Config;
 use crate::module::{DrawerModule, Module, Slider, Toggle};
 use crate::panel::PANEL_HEIGHT;
-use crate::protocols::fractional_scale::FractionalScaleManager;
-use crate::protocols::viewporter::Viewporter;
 use crate::renderer::{RectRenderer, Renderer, TextRenderer};
 use crate::text::{GlRasterizer, GlSubTexture, Svg};
 use crate::vertex::{RectVertex, VertexBatcher};
-use crate::{Result, Size, State, gl};
+use crate::{ProtocolStates, Result, Size, State, gl};
 
 /// Height of the handle for single-tap closing the drawer.
 pub const HANDLE_HEIGHT: u32 = 32;
@@ -80,12 +78,10 @@ pub struct Drawer {
 
 impl Drawer {
     pub fn new(
+        config: &Config,
         queue: QueueHandle<State>,
-        fractional_scale: &FractionalScaleManager,
-        compositor: &CompositorState,
-        viewporter: &Viewporter,
-        layer: &LayerShell,
-        egl_config: &Config,
+        protocol_states: &ProtocolStates,
+        egl_config: &EglConfig,
     ) -> Result<Self> {
         // Default to 1x1 initial size since 0x0 EGL surfaces are illegal.
         let size = Size { width: 1, height: 1 };
@@ -98,7 +94,7 @@ impl Drawer {
             unsafe { egl_config.display().create_context(egl_config, &context_attribules)? };
 
         // Create the Wayland surface.
-        let surface = compositor.create_surface(&queue);
+        let surface = protocol_states.compositor.create_surface(&queue);
 
         let window = NonNull::new(surface.id().as_ptr().cast()).unwrap();
         let wayland_window_handle = WaylandWindowHandle::new(window);
@@ -116,19 +112,24 @@ impl Drawer {
             unsafe { egl_config.display().create_window_surface(egl_config, &surface_attributes)? };
 
         // Setup layer shell surface.
-        let window =
-            layer.create_layer_surface(&queue, surface, Layer::Overlay, Some("panel"), None);
+        let window = protocol_states.layer.create_layer_surface(
+            &queue,
+            surface,
+            Layer::Overlay,
+            Some("panel"),
+            None,
+        );
         window.set_anchor(Anchor::LEFT | Anchor::TOP | Anchor::RIGHT | Anchor::BOTTOM);
         window.set_exclusive_zone(-1);
 
         // Initialize the renderer.
-        let renderer = Renderer::new(egl_context, egl_surface, 1.)?;
+        let renderer = Renderer::new(config, egl_context, egl_surface, 1.)?;
 
         // Initialize fractional scaling protocol.
-        fractional_scale.fractional_scaling(&queue, window.wl_surface());
+        protocol_states.fractional_scale.fractional_scaling(&queue, window.wl_surface());
 
         // Initialize viewporter protocol.
-        let viewport = viewporter.viewport(&queue, window.wl_surface());
+        let viewport = protocol_states.viewporter.viewport(&queue, window.wl_surface());
 
         Ok(Self {
             renderer,
@@ -153,6 +154,7 @@ impl Drawer {
     /// Show the drawer window.
     pub fn show(
         &mut self,
+        config: &Config,
         compositor: &CompositorState,
         modules: &mut [&mut dyn Module],
         opening: bool,
@@ -160,7 +162,7 @@ impl Drawer {
         self.visible = true;
 
         // Immediately render the first frame.
-        self.draw(compositor, modules, opening)
+        self.draw(config, compositor, modules, opening)
     }
 
     /// Hide the drawer window.
@@ -176,6 +178,7 @@ impl Drawer {
     /// Render the panel.
     pub fn draw(
         &mut self,
+        config: &Config,
         compositor: &CompositorState,
         modules: &mut [&mut dyn Module],
         opening: bool,
@@ -243,14 +246,14 @@ impl Drawer {
             gl::Viewport(0, y_offset, self.size.width, self.size.height);
 
             // Draw background for the offset viewport.
-            let [r, g, b] = BG.as_f32();
+            let [r, g, b] = config.colors.bg.as_f32();
             gl::ClearColor(r, g, b, 1.);
             gl::Clear(gl::COLOR_BUFFER_BIT);
 
             // Add modules to rendering batch.
             let mut run = DrawerRun::new(renderer);
             for module in modules.iter_mut().filter_map(|module| module.drawer_module()) {
-                run.batch(module);
+                run.batch(config, module);
             }
 
             // Add drawer handle to rendering batch.
@@ -488,15 +491,15 @@ impl<'a> DrawerRun<'a> {
     }
 
     /// Add a drawer module to the run.
-    fn batch(&mut self, module: DrawerModule) {
+    fn batch(&mut self, config: &Config, module: DrawerModule) {
         let _ = match module {
-            DrawerModule::Toggle(toggle) => self.batch_toggle(toggle),
-            DrawerModule::Slider(slider) => self.batch_slider(slider),
+            DrawerModule::Toggle(toggle) => self.batch_toggle(config, toggle),
+            DrawerModule::Slider(slider) => self.batch_slider(config, slider),
         };
     }
 
     /// Add a slider to the drawer.
-    fn batch_slider(&mut self, slider: &dyn Slider) -> Result<()> {
+    fn batch_slider(&mut self, config: &Config, slider: &dyn Slider) -> Result<()> {
         let window_width = self.positioner.size.width;
         let window_height = self.positioner.size.height;
 
@@ -520,16 +523,18 @@ impl<'a> DrawerRun<'a> {
         self.row += 1;
 
         // Stage tray vertices.
+        let module_inactive = config.colors.module_inactive;
         let tray =
-            RectVertex::new(window_width, window_height, x, y, width, height, MODULE_INACTIVE);
+            RectVertex::new(window_width, window_height, x, y, width, height, module_inactive);
         for vertex in tray {
             self.rect_batcher.push(0, vertex);
         }
 
         // Stage slider vertices.
+        let module_active = config.colors.module_active;
         let slider_width = (width as f64 * slider.value()) as i16;
         let slider =
-            RectVertex::new(window_width, window_height, x, y, slider_width, height, MODULE_ACTIVE);
+            RectVertex::new(window_width, window_height, x, y, slider_width, height, module_active);
         for vertex in slider {
             self.rect_batcher.push(0, vertex);
         }
@@ -546,7 +551,7 @@ impl<'a> DrawerRun<'a> {
     }
 
     /// Add a toggle button to the drawer.
-    fn batch_toggle(&mut self, toggle: &dyn Toggle) -> Result<()> {
+    fn batch_toggle(&mut self, config: &Config, toggle: &dyn Toggle) -> Result<()> {
         let window_width = self.positioner.size.width;
         let window_height = self.positioner.size.height;
 
@@ -569,7 +574,11 @@ impl<'a> DrawerRun<'a> {
         }
 
         // Batch icon backdrop.
-        let color = if toggle.enabled() { MODULE_ACTIVE } else { MODULE_INACTIVE };
+        let color = if toggle.enabled() {
+            config.colors.module_active
+        } else {
+            config.colors.module_inactive
+        };
         let backdrop = RectVertex::new(window_width, window_height, x, y, size, size, color);
         for vertex in backdrop {
             self.rect_batcher.push(0, vertex);

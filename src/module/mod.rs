@@ -1,7 +1,7 @@
 //! Panel modules.
 
 use crate::Result;
-use crate::config::colors::Color;
+use crate::config::{Color, Config};
 use crate::text::Svg;
 
 pub mod battery;
@@ -65,7 +65,7 @@ pub trait PanelBackgroundModule {
     fn value(&self) -> f64;
 
     /// Background color.
-    fn color(&self) -> Color;
+    fn color(&self, config: &Config) -> Color;
 }
 
 /// Module in the drawer.

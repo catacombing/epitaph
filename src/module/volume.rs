@@ -11,7 +11,7 @@ use libpulse_binding::context::{Context, FlagSet as ContextFlagSet, State as Pul
 use libpulse_binding::mainloop::standard::{IterateResult, Mainloop};
 use libpulse_binding::volume::Volume as PulseVolume;
 
-use crate::config::colors::Color;
+use crate::config::{Color, Config};
 use crate::module::{Module, PanelBackgroundModule};
 use crate::{Result, State};
 
@@ -73,11 +73,11 @@ impl PanelBackgroundModule for Volume {
         if volume > 0 && modded == 0. { 100. } else { modded }
     }
 
-    fn color(&self) -> Color {
+    fn color(&self, config: &Config) -> Color {
         if self.volume.load(Ordering::Relaxed) > 100 {
-            Color { r: 255, g: 0, b: 0 }
+            config.colors.volume_bad_bg
         } else {
-            Color { r: 117, g: 42, b: 42 }
+            config.colors.volume_bg
         }
     }
 }

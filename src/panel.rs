@@ -7,7 +7,7 @@ use std::time::Duration;
 use calloop::timer::{TimeoutAction, Timer};
 use calloop::{LoopHandle, RegistrationToken};
 use crossfont::Metrics;
-use glutin::api::egl::config::Config;
+use glutin::api::egl::config::Config as EglConfig;
 use glutin::context::{ContextApi, ContextAttributesBuilder, Version};
 use glutin::display::GetGlDisplay;
 use glutin::prelude::*;
@@ -19,17 +19,15 @@ use smithay_client_toolkit::reexports::client::{Proxy, QueueHandle};
 use smithay_client_toolkit::reexports::protocols::wp::viewporter::client::wp_viewport::WpViewport;
 use smithay_client_toolkit::shell::WaylandSurface;
 use smithay_client_toolkit::shell::wlr_layer::{
-    Anchor, Layer, LayerShell, LayerSurface, LayerSurfaceConfigure,
+    Anchor, Layer, LayerSurface, LayerSurfaceConfigure,
 };
 
-use crate::config::colors::{BG, Color};
+use crate::config::{Color, Config};
 use crate::module::{Alignment, Module, PanelModuleContent};
-use crate::protocols::fractional_scale::FractionalScaleManager;
-use crate::protocols::viewporter::Viewporter;
 use crate::renderer::{Renderer, TextRenderer};
 use crate::text::{GlRasterizer, Svg};
 use crate::vertex::VertexBatcher;
-use crate::{Result, Size, State, gl};
+use crate::{ProtocolStates, Result, Size, State, gl};
 
 /// Panel height in pixels with a scale factor of 1.
 pub const PANEL_HEIGHT: i32 = 20;
@@ -63,13 +61,11 @@ pub struct Panel {
 
 impl Panel {
     pub fn new(
+        config: &Config,
         queue: QueueHandle<State>,
         event_loop: LoopHandle<'static, State>,
-        fractional_scale: &FractionalScaleManager,
-        compositor: &CompositorState,
-        viewporter: &Viewporter,
-        layer: &LayerShell,
-        egl_config: &Config,
+        protocol_states: &ProtocolStates,
+        egl_config: &EglConfig,
     ) -> Result<Self> {
         // Default to 1x1 initial size since 0x0 EGL surfaces are illegal.
         let size = Size { width: 1, height: 1 };
@@ -83,7 +79,7 @@ impl Panel {
         let egl_context = unsafe { egl_display.create_context(egl_config, &context_attribules)? };
 
         // Create the Wayland surface.
-        let surface = compositor.create_surface(&queue);
+        let surface = protocol_states.compositor.create_surface(&queue);
 
         let window = NonNull::new(surface.id().as_ptr().cast()).unwrap();
         let wayland_window_handle = WaylandWindowHandle::new(window);
@@ -101,20 +97,25 @@ impl Panel {
             unsafe { egl_config.display().create_window_surface(egl_config, &surface_attributes)? };
 
         // Create the window.
-        let window =
-            layer.create_layer_surface(&queue, surface, Layer::Bottom, Some("panel"), None);
+        let window = protocol_states.layer.create_layer_surface(
+            &queue,
+            surface,
+            Layer::Bottom,
+            Some("panel"),
+            None,
+        );
         window.set_anchor(Anchor::LEFT | Anchor::TOP | Anchor::RIGHT);
         window.set_size(0, PANEL_HEIGHT as u32);
         window.set_exclusive_zone(PANEL_HEIGHT);
 
         // Initialize the renderer.
-        let renderer = Renderer::new(egl_context, egl_surface, 1.)?;
+        let renderer = Renderer::new(config, egl_context, egl_surface, 1.)?;
 
         // Initialize fractional scaling protocol.
-        fractional_scale.fractional_scaling(&queue, window.wl_surface());
+        protocol_states.fractional_scale.fractional_scaling(&queue, window.wl_surface());
 
         // Initialize viewporter protocol.
-        let viewport = viewporter.viewport(&queue, window.wl_surface());
+        let viewport = protocol_states.viewporter.viewport(&queue, window.wl_surface());
 
         Ok(Self {
             event_loop,
@@ -132,14 +133,14 @@ impl Panel {
     }
 
     /// Render the panel.
-    pub fn draw(&mut self, modules: &[&dyn Module]) -> Result<()> {
+    pub fn draw(&mut self, config: &Config, modules: &[&dyn Module]) -> Result<()> {
         self.frame_pending = false;
 
-        self.update_background_activity(modules);
+        self.update_background_activity(config, modules);
 
         self.renderer.draw(|renderer| {
             // Always draw default background.
-            let [r, g, b] = BG.as_f32();
+            let [r, g, b] = config.colors.bg.as_f32();
             unsafe {
                 gl::ClearColor(r, g, b, 1.);
                 gl::Clear(gl::COLOR_BUFFER_BIT);
@@ -186,7 +187,7 @@ impl Panel {
     }
 
     /// Update current status of the background activity bar.
-    fn update_background_activity(&mut self, modules: &[&dyn Module]) {
+    fn update_background_activity(&mut self, config: &Config, modules: &[&dyn Module]) {
         // Ensure activite cache has the correct size.
         self.last_background_activity.resize(modules.len(), 0.);
 
@@ -199,7 +200,7 @@ impl Panel {
 
             let value = module.value();
             if self.last_background_activity[i] != value {
-                self.background_activity = Some((module.color(), value));
+                self.background_activity = Some((module.color(config), value));
                 self.last_background_activity[i] = value;
             }
         }
