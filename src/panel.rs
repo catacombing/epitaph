@@ -107,6 +107,7 @@ impl Panel {
         window.set_anchor(Anchor::LEFT | Anchor::TOP | Anchor::RIGHT);
         window.set_size(0, PANEL_HEIGHT as u32);
         window.set_exclusive_zone(PANEL_HEIGHT);
+        window.commit();
 
         // Initialize the renderer.
         let renderer = Renderer::new(config, egl_context, egl_surface, 1.)?;

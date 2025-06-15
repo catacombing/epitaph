@@ -121,6 +121,7 @@ impl Drawer {
         );
         window.set_anchor(Anchor::LEFT | Anchor::TOP | Anchor::RIGHT | Anchor::BOTTOM);
         window.set_exclusive_zone(-1);
+        window.commit();
 
         // Initialize the renderer.
         let renderer = Renderer::new(config, egl_context, egl_surface, 1.)?;
