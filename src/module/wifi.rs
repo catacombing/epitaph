@@ -84,14 +84,16 @@ impl Toggle for Wifi {
         }
 
         match (self.connection.connected, self.connection.strength) {
-            (true, 0..=25) => Svg::WifiConnected25,
-            (true, 26..=50) => Svg::WifiConnected50,
-            (true, 51..=75) => Svg::WifiConnected75,
-            (true, 76..) => Svg::WifiConnected100,
-            (false, 0..=25) => Svg::WifiDisconnected25,
-            (false, 26..=50) => Svg::WifiDisconnected50,
-            (false, 51..=75) => Svg::WifiDisconnected75,
-            (false, 76..) => Svg::WifiDisconnected100,
+            (true, 88..) => Svg::WifiConnected100,
+            (true, 63..) => Svg::WifiConnected75,
+            (true, 38..) => Svg::WifiConnected50,
+            (true, 13..) => Svg::WifiConnected25,
+            (true, _) => Svg::WifiConnected0,
+            (false, 88..) => Svg::WifiDisconnected100,
+            (false, 63..) => Svg::WifiDisconnected75,
+            (false, 38..) => Svg::WifiDisconnected50,
+            (false, 13..) => Svg::WifiDisconnected25,
+            (false, _) => Svg::WifiDisconnected0,
         }
     }
 

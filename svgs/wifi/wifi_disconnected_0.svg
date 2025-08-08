@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   width="70.710678mm"
+   height="50mm"
+   viewBox="0 0 70.710678 50"
+   version="1.1"
+   id="svg5"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs9">
+    <clipPath
+       clipPathUnits="userSpaceOnUse"
+       id="clipPath2792">
+      <path
+         style="display:none;fill:#000000;fill-opacity:1;stroke:none;stroke-width:5.01436;stroke-opacity:1;paint-order:markers fill stroke"
+         d="m -175.251,178.53624 7.07038,7.07038 -7.07038,7.07038 3.53624,3.53624 7.07038,-7.07038 7.0705,7.07026 3.536,-3.536 -7.07026,-7.0705 7.07026,-7.0705 -3.536,-3.536 -7.0705,7.07026 L -171.71476,175 Z"
+         id="path2794" />
+      <path
+         id="lpe_path-effect2800"
+         style="display:inline;fill:#000000;fill-opacity:1;stroke:none;stroke-width:5.01436;stroke-opacity:1;paint-order:markers fill stroke"
+         class="powerclip"
+         d="m -204.99999,160 h 80.71067 v 60 h -80.71067 z m 29.74899,18.53624 7.07038,7.07038 -7.07038,7.07038 3.53624,3.53624 7.07038,-7.07038 7.0705,7.07026 3.536,-3.536 -7.07026,-7.0705 7.07026,-7.0705 -3.536,-3.536 -7.0705,7.07026 L -171.71476,175 Z" />
+    </clipPath>
+  </defs>
+  <g
+     id="g28312"
+     transform="translate(199.99998,-165)">
+    <path
+       style="fill:#888888;fill-opacity:1;stroke-width:0.143821"
+       id="path167-3-7-3-9"
+       mask="none"
+       d="m -199.99999,179.64466 a 50,50 0 0 1 70.71067,0 L -164.64465,215 Z"
+       clip-path="url(#clipPath2792)" />
+  </g>
+</svg>
