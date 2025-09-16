@@ -1,5 +1,6 @@
 //! Drawer window state.
 
+use std::mem;
 use std::num::NonZeroU32;
 use std::ptr::NonNull;
 use std::time::Instant;
@@ -69,6 +70,7 @@ pub struct Drawer {
     touch_module: Option<usize>,
     touch_position: (f64, f64),
     touch_id: Option<i32>,
+    pending_resize: bool,
     frame_pending: bool,
     renderer: Renderer,
     scale_factor: f64,
@@ -140,8 +142,9 @@ impl Drawer {
             size,
             scale_factor: 1.,
             last_animation_frame: Default::default(),
-            frame_pending: Default::default(),
+            pending_resize: Default::default(),
             touch_position: Default::default(),
+            frame_pending: Default::default(),
             touch_module: Default::default(),
             opening_icon: Default::default(),
             closing_icon: Default::default(),
@@ -189,6 +192,24 @@ impl Drawer {
         // Never attach new buffers while hidden.
         if !self.visible {
             return Ok(());
+        }
+
+        // Apply pending resize before rendering.
+        //
+        // XXX: This cannot be done in `Self::resize` since that would cause latching
+        // with multiple resize events while hidden, running into the Mesa bug
+        // that prevents us from resizing the surface until rendering.
+        if mem::take(&mut self.pending_resize) {
+            // Update viewporter buffer target size.
+            let logical_size = self.size / self.scale_factor;
+            self.viewport.set_destination(logical_size.width, logical_size.height);
+
+            // Ensure drawer stays fully open after resize.
+            if !self.offsetting && self.offset > 0. {
+                self.offset = self.max_offset();
+            }
+
+            let _ = self.renderer.resize(self.size, self.scale_factor);
         }
 
         // Update drawer open/close animation.
@@ -447,18 +468,8 @@ impl Drawer {
 
     /// Resize the window.
     fn resize(&mut self, size: Size) {
+        self.pending_resize = true;
         self.size = size;
-
-        // Update viewporter buffer target size.
-        let logical_size = size / self.scale_factor;
-        self.viewport.set_destination(logical_size.width, logical_size.height);
-
-        // Ensure drawer stays fully open after resize.
-        if !self.offsetting && self.offset > 0. {
-            self.offset = self.max_offset();
-        }
-
-        let _ = self.renderer.resize(size, self.scale_factor);
     }
 }
 
