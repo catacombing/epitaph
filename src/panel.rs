@@ -96,6 +96,12 @@ impl Panel {
         let egl_surface =
             unsafe { egl_config.display().create_window_surface(egl_config, &surface_attributes)? };
 
+        // Initialize fractional scaling protocol.
+        protocol_states.fractional_scale.fractional_scaling(&queue, &surface);
+
+        // Initialize viewporter protocol.
+        let viewport = protocol_states.viewporter.viewport(&queue, &surface);
+
         // Create the window.
         let window = protocol_states.layer.create_layer_surface(
             &queue,
@@ -111,12 +117,6 @@ impl Panel {
 
         // Initialize the renderer.
         let renderer = Renderer::new(config, egl_context, egl_surface, 1.)?;
-
-        // Initialize fractional scaling protocol.
-        protocol_states.fractional_scale.fractional_scaling(&queue, window.wl_surface());
-
-        // Initialize viewporter protocol.
-        let viewport = protocol_states.viewporter.viewport(&queue, window.wl_surface());
 
         Ok(Self {
             event_loop,
