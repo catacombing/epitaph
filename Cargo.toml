@@ -1,6 +1,6 @@
 [package]
 name = "epitaph"
-version = "1.0.1"
+version = "1.0.2"
 description = "A Wayland mobile panel"
 authors = ["Christian Duerr <contact@christianduerr.com>"]
 repository = "https://github.com/catacombing/epitaph"
@@ -16,7 +16,7 @@ calloop = { version = "0.14.0", features = ["signals"] }
 calloop-wayland-source = "0.4.0"
 catacomb_ipc = { git = "https://github.com/chrisduerr/catacomb", rev = "88facecf54e0cb45be635db16d0ca00399277b5d" }
 chrono = { version = "0.4.20", default-features = false, features = ["clock"] }
-configory = "0.4.0"
+configory = "0.5.2"
 crossfont = "0.9.0"
 futures-lite = "2.6.0"
 glutin = { version = "0.32.1", default-features = false, features = ["egl", "wayland"] }
@@ -25,7 +25,7 @@ libpulse-binding = "2.30.1"
 raw-window-handle = "0.6.2"
 resvg = { version = "0.45.0", default-features = false }
 serde = { version = "1.0.219", features = ["derive"] }
-smithay-client-toolkit = { version = "0.19.2", default-features = false, features = ["xkbcommon"] }
+smithay-client-toolkit = { version = "0.20.0", default-features = false, features = ["xkbcommon"] }
 tokio = { version = "1.26.0", features = ["macros"] }
 udev = "0.9.1"
 wayland-backend = { version = "0.3.3", features = ["client_system"] }
