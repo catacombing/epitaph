@@ -1,20 +1,28 @@
 //! OpenGL rendering.
 
+use std::ffi::CString;
 use std::num::NonZeroU32;
 use std::ops::Deref;
+use std::ptr::NonNull;
+use std::sync::Once;
 use std::{mem, ptr};
 
 use crossfont::Size as FontSize;
-use glutin::api::egl::context::{NotCurrentContext, PossiblyCurrentContext};
-use glutin::api::egl::surface::Surface;
+use glutin::config::{Api, ConfigTemplateBuilder};
+use glutin::context::{ContextApi, ContextAttributesBuilder, PossiblyCurrentContext, Version};
+use glutin::display::Display;
 use glutin::prelude::*;
-use glutin::surface::WindowSurface;
+use glutin::surface::{Surface, SurfaceAttributesBuilder, SwapInterval, WindowSurface};
+use raw_window_handle::{RawWindowHandle, WaylandWindowHandle};
+use smithay_client_toolkit::reexports::client::Proxy;
+use smithay_client_toolkit::reexports::client::protocol::wl_surface::WlSurface;
 
 use crate::config::Config;
+use crate::geometry::Size;
+use crate::gl;
 use crate::gl::types::{GLenum, GLfloat, GLshort, GLuint};
 use crate::text::GlRasterizer;
 use crate::vertex::{GlyphVertex, RectVertex, VertexBatcher};
-use crate::{Result, Size, gl};
 
 /// Maximum items to be drawn in a batch.
 ///
@@ -30,58 +38,34 @@ const RECT_FRAGMENT_SHADER: &str = include_str!("../shaders/rect.f.glsl");
 
 /// OpenGL renderer.
 pub struct Renderer {
-    pub text_batcher: VertexBatcher<TextRenderer>,
-    pub rect_batcher: VertexBatcher<RectRenderer>,
-    pub rasterizer: GlRasterizer,
-    pub scale_factor: f64,
-    pub size: Size<f32>,
-
-    egl_surface: Surface<WindowSurface>,
-    egl_context: PossiblyCurrentContext,
+    rasterizer: Option<GlRasterizer>,
+    sized: Option<SizedRenderer>,
+    surface: WlSurface,
+    display: Display,
 }
 
 impl Renderer {
     /// Initialize a new renderer.
-    pub fn new(
-        config: &Config,
-        egl_context: NotCurrentContext,
-        egl_surface: Surface<WindowSurface>,
-        scale_factor: f64,
-    ) -> Result<Self> {
-        unsafe {
-            // Enable the OpenGL context.
-            let egl_context = egl_context.make_current_surfaceless()?;
+    pub fn new(config: &Config, display: Display, surface: WlSurface) -> Self {
+        static GL_INIT: Once = Once::new();
+        GL_INIT.call_once(|| {
+            gl::load_with(|symbol| {
+                let symbol = CString::new(symbol).unwrap();
+                display.get_proc_address(symbol.as_c_str()).cast()
+            });
+        });
 
-            gl::Enable(gl::BLEND);
+        let font_size = FontSize::new(config.font.size);
+        let rasterizer =
+            GlRasterizer::new(&config.font.family, font_size, 1.).expect("rasterizer creation");
 
-            let font_size = FontSize::new(config.font.size);
-            Ok(Renderer {
-                scale_factor,
-                egl_surface,
-                egl_context,
-                rasterizer: GlRasterizer::new(&config.font.family, font_size, scale_factor)?,
-                text_batcher: Default::default(),
-                rect_batcher: Default::default(),
-                size: Default::default(),
-            })
-        }
+        Renderer { display, surface, rasterizer: Some(rasterizer), sized: Default::default() }
     }
 
-    /// Update viewport size.
-    pub fn resize(&mut self, size: Size, scale_factor: f64) -> Result<()> {
-        // XXX: Resize here **must** be performed before making the EGL context current,
-        // to avoid locking the back buffer and delaying the resize by one
-        // frame.
-        self.egl_surface.resize(
-            &self.egl_context,
-            NonZeroU32::new(size.width as u32).unwrap(),
-            NonZeroU32::new(size.height as u32).unwrap(),
-        );
-
-        self.bind()?;
-
-        unsafe { gl::Viewport(0, 0, size.width, size.height) };
-        self.size = size.into();
+    /// Perform drawing with this renderer.
+    pub fn draw<F: FnOnce(&mut SizedRenderer)>(&mut self, size: Size<u32>, fun: F) {
+        let sized = self.sized(size);
+        sized.make_current();
 
         // Calculate OpenGL projection.
         let scale_x = 2. / size.width as f32;
@@ -90,35 +74,145 @@ impl Renderer {
         let offset_y = 1.;
 
         // Update the text renderer's uniform.
-        self.text_batcher.renderer().bind();
-        unsafe {
-            gl::Uniform4f(0, offset_x, offset_y, scale_x, scale_y);
-        }
+        sized.text_batcher.renderer().bind();
+        unsafe { gl::Uniform4f(0, offset_x, offset_y, scale_x, scale_y) };
 
-        // Update rasterizer's scale factor.
-        self.rasterizer.set_scale_factor(scale_factor);
-        self.scale_factor = scale_factor;
+        // Resize OpenGL viewport.
+        unsafe { gl::Viewport(0, 0, size.width as i32, size.height as i32) };
 
-        Ok(())
-    }
-
-    /// Perform drawing with this renderer.
-    pub fn draw<F: FnMut(&mut Renderer) -> Result<()>>(&mut self, mut fun: F) -> Result<()> {
-        self.bind()?;
-
-        fun(self)?;
+        fun(sized);
 
         unsafe { gl::Flush() };
 
-        self.egl_surface.swap_buffers(&self.egl_context)?;
-
-        Ok(())
+        sized.swap_buffers();
     }
 
-    /// Bind this renderer's program and buffers.
-    fn bind(&self) -> Result<()> {
-        self.egl_context.make_current(&self.egl_surface)?;
-        Ok(())
+    /// Get render state requiring a size.
+    fn sized(&mut self, size: Size<u32>) -> &mut SizedRenderer {
+        // Initialize or resize sized state.
+        match &mut self.sized {
+            // Resize renderer.
+            Some(sized) => sized.resize(size),
+            // Create sized state.
+            None => {
+                let rasterizer = self.rasterizer.take().unwrap();
+                self.sized =
+                    Some(SizedRenderer::new(&self.display, &self.surface, size, rasterizer));
+            },
+        }
+
+        self.sized.as_mut().unwrap()
+    }
+}
+
+/// Render state requiring known size.
+///
+/// This state is initialized on-demand, to avoid Mesa's issue with resizing
+/// before the first draw.
+pub struct SizedRenderer {
+    pub text_batcher: VertexBatcher<TextRenderer>,
+    pub rect_batcher: VertexBatcher<RectRenderer>,
+    pub rasterizer: GlRasterizer,
+
+    egl_surface: Surface<WindowSurface>,
+    egl_context: PossiblyCurrentContext,
+
+    size: Size<u32>,
+}
+
+impl SizedRenderer {
+    /// Create sized renderer state.
+    fn new(
+        display: &Display,
+        surface: &WlSurface,
+        size: Size<u32>,
+        rasterizer: GlRasterizer,
+    ) -> Self {
+        // Create EGL surface and context and make it current.
+        let (egl_surface, egl_context) = Self::create_surface(display, surface, size);
+
+        // Enable blending for text rendering.
+        unsafe { gl::Enable(gl::BLEND) };
+
+        Self {
+            egl_surface,
+            egl_context,
+            rasterizer,
+            size,
+            text_batcher: Default::default(),
+            rect_batcher: Default::default(),
+        }
+    }
+
+    /// Resize the renderer.
+    fn resize(&mut self, size: Size<u32>) {
+        if self.size == size {
+            return;
+        }
+
+        // Resize EGL texture.
+        self.egl_surface.resize(
+            &self.egl_context,
+            NonZeroU32::new(size.width).unwrap(),
+            NonZeroU32::new(size.height).unwrap(),
+        );
+
+        self.size = size;
+    }
+
+    /// Make EGL surface current.
+    fn make_current(&self) {
+        self.egl_context.make_current(&self.egl_surface).unwrap();
+    }
+
+    /// Perform OpenGL buffer swap.
+    fn swap_buffers(&self) {
+        self.egl_surface.swap_buffers(&self.egl_context).unwrap();
+    }
+
+    /// Create a new EGL surface.
+    fn create_surface(
+        display: &Display,
+        surface: &WlSurface,
+        size: Size<u32>,
+    ) -> (Surface<WindowSurface>, PossiblyCurrentContext) {
+        assert!(size.width > 0 && size.height > 0);
+
+        // Create EGL config.
+        let config_template = ConfigTemplateBuilder::new().with_api(Api::GLES2).build();
+        let egl_config = unsafe {
+            display
+                .find_configs(config_template)
+                .ok()
+                .and_then(|mut configs| configs.next())
+                .unwrap()
+        };
+
+        // Create EGL context.
+        let context_attributes = ContextAttributesBuilder::new()
+            .with_context_api(ContextApi::Gles(Some(Version::new(2, 0))))
+            .build(None);
+        let egl_context =
+            unsafe { display.create_context(&egl_config, &context_attributes).unwrap() };
+        let egl_context = egl_context.treat_as_possibly_current();
+
+        let surface = NonNull::new(surface.id().as_ptr().cast()).unwrap();
+        let raw_window_handle = WaylandWindowHandle::new(surface);
+        let raw_window_handle = RawWindowHandle::Wayland(raw_window_handle);
+        let surface_attributes = SurfaceAttributesBuilder::<WindowSurface>::new().build(
+            raw_window_handle,
+            NonZeroU32::new(size.width).unwrap(),
+            NonZeroU32::new(size.height).unwrap(),
+        );
+
+        let egl_surface =
+            unsafe { display.create_window_surface(&egl_config, &surface_attributes).unwrap() };
+
+        // Ensure rendering never blocks.
+        egl_context.make_current(&egl_surface).unwrap();
+        egl_surface.set_swap_interval(&egl_context, SwapInterval::DontWait).unwrap();
+
+        (egl_surface, egl_context)
     }
 }
 
@@ -155,10 +249,8 @@ impl Default for TextRenderer {
         }
 
         unsafe {
-            // Create vertex shader.
+            // Create shaders.
             let vertex_shader = Shader::new(gl::VERTEX_SHADER, TEXT_VERTEX_SHADER);
-
-            // Create fragment shader.
             let fragment_shader = Shader::new(gl::FRAGMENT_SHADER, TEXT_FRAGMENT_SHADER);
 
             // Create shader program.

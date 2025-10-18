@@ -1,33 +1,27 @@
 //! Panel window state.
 
-use std::num::NonZeroU32;
-use std::ptr::NonNull;
+use std::mem;
 use std::time::Duration;
 
 use calloop::timer::{TimeoutAction, Timer};
 use calloop::{LoopHandle, RegistrationToken};
 use crossfont::Metrics;
-use glutin::api::egl::config::Config as EglConfig;
-use glutin::context::{ContextApi, ContextAttributesBuilder, Version};
-use glutin::display::GetGlDisplay;
-use glutin::prelude::*;
-use glutin::surface::{SurfaceAttributesBuilder, WindowSurface};
-use raw_window_handle::{RawWindowHandle, WaylandWindowHandle};
+use glutin::display::Display;
 use smithay_client_toolkit::compositor::{CompositorState, Region};
 use smithay_client_toolkit::reexports::client::protocol::wl_surface::WlSurface;
-use smithay_client_toolkit::reexports::client::{Proxy, QueueHandle};
+use smithay_client_toolkit::reexports::client::{Connection, QueueHandle};
 use smithay_client_toolkit::reexports::protocols::wp::viewporter::client::wp_viewport::WpViewport;
 use smithay_client_toolkit::shell::WaylandSurface;
-use smithay_client_toolkit::shell::wlr_layer::{
-    Anchor, Layer, LayerSurface, LayerSurfaceConfigure,
-};
+use smithay_client_toolkit::shell::wlr_layer::{Anchor, Layer, LayerSurface};
+use tracing::error;
 
 use crate::config::{Color, Config};
+use crate::geometry::Size;
 use crate::module::{Alignment, Module, PanelModuleContent};
-use crate::renderer::{Renderer, TextRenderer};
+use crate::renderer::{Renderer, SizedRenderer, TextRenderer};
 use crate::text::{GlRasterizer, Svg};
 use crate::vertex::VertexBatcher;
-use crate::{ProtocolStates, Result, Size, State, gl};
+use crate::{ProtocolStates, Result, State, gl};
 
 /// Panel height in pixels with a scale factor of 1.
 pub const PANEL_HEIGHT: i32 = 20;
@@ -47,54 +41,34 @@ const BACKGROUND_ACTIVITY_TIMEOUT: Duration = Duration::from_millis(1000);
 pub struct Panel {
     event_loop: LoopHandle<'static, State>,
     queue: QueueHandle<State>,
+    connection: Connection,
     viewport: WpViewport,
     window: LayerSurface,
-    frame_pending: bool,
+
     renderer: Renderer,
-    scale_factor: f64,
-    size: Size,
 
     background_activity_timeout: Option<RegistrationToken>,
     background_activity: Option<(Color, f64)>,
     last_background_activity: Vec<f64>,
+
+    size: Size<u32>,
+    scale: f64,
+
+    stalled: bool,
+    dirty: bool,
 }
 
 impl Panel {
     pub fn new(
         config: &Config,
         queue: QueueHandle<State>,
+        connection: Connection,
         event_loop: LoopHandle<'static, State>,
         protocol_states: &ProtocolStates,
-        egl_config: &EglConfig,
-    ) -> Result<Self> {
-        // Default to 1x1 initial size since 0x0 EGL surfaces are illegal.
-        let size = Size { width: 1, height: 1 };
-
-        // Initialize EGL context.
-        let context_attribules = ContextAttributesBuilder::new()
-            .with_context_api(ContextApi::Gles(Some(Version::new(2, 0))))
-            .build(None);
-
-        let egl_display = egl_config.display();
-        let egl_context = unsafe { egl_display.create_context(egl_config, &context_attribules)? };
-
+        display: Display,
+    ) -> Self {
         // Create the Wayland surface.
         let surface = protocol_states.compositor.create_surface(&queue);
-
-        let window = NonNull::new(surface.id().as_ptr().cast()).unwrap();
-        let wayland_window_handle = WaylandWindowHandle::new(window);
-        let raw_window_handle = RawWindowHandle::Wayland(wayland_window_handle);
-
-        // Create the EGL surface.
-        let surface_attributes = SurfaceAttributesBuilder::<WindowSurface>::new().build(
-            raw_window_handle,
-            NonZeroU32::new(size.width as u32).unwrap(),
-            NonZeroU32::new(size.height as u32).unwrap(),
-        );
-
-        // Create the EGL surface.
-        let egl_surface =
-            unsafe { egl_config.display().create_window_surface(egl_config, &surface_attributes)? };
 
         // Initialize fractional scaling protocol.
         protocol_states.fractional_scale.fractional_scaling(&queue, &surface);
@@ -105,7 +79,7 @@ impl Panel {
         // Create the window.
         let window = protocol_states.layer.create_layer_surface(
             &queue,
-            surface,
+            surface.clone(),
             Layer::Bottom,
             Some("panel"),
             None,
@@ -116,30 +90,51 @@ impl Panel {
         window.commit();
 
         // Initialize the renderer.
-        let renderer = Renderer::new(config, egl_context, egl_surface, 1.)?;
+        let renderer = Renderer::new(config, display, surface);
 
-        Ok(Self {
+        Self {
+            connection,
             event_loop,
             viewport,
             renderer,
             window,
             queue,
-            size,
-            frame_pending: false,
-            scale_factor: 1.,
+            stalled: true,
+            dirty: true,
+            scale: 1.,
             background_activity_timeout: Default::default(),
             last_background_activity: Default::default(),
             background_activity: Default::default(),
-        })
+            size: Default::default(),
+        }
     }
 
     /// Render the panel.
-    pub fn draw(&mut self, config: &Config, modules: &[&dyn Module]) -> Result<()> {
-        self.frame_pending = false;
+    pub fn draw(&mut self, config: &Config, modules: &[&dyn Module]) {
+        // Skip drawing initial configure is ready.
+        if !self.dirty || self.size == Size::default() {
+            self.stalled = true;
+            return;
+        }
+        self.dirty = false;
+
+        // Update viewporter logical render size.
+        //
+        // NOTE: This must be done every time we draw with Sway; it is not
+        // persisted when drawing with the same surface multiple times.
+        self.viewport.set_destination(self.size.width as i32, self.size.height as i32);
+
+        // Mark entire surface as damaged.
+        let wl_surface = self.window.wl_surface();
+        wl_surface.damage(0, 0, self.size.width as i32, self.size.height as i32);
 
         self.update_background_activity(config, modules);
 
-        self.renderer.draw(|renderer| {
+        let physical_size = self.size * self.scale;
+        self.renderer.draw(physical_size, |renderer| {
+            // Ensure rasterizer's text scale is up to date.
+            renderer.rasterizer.set_scale_factor(self.scale);
+
             // Always draw default background.
             let [r, g, b] = config.colors.bg.as_f32();
             unsafe {
@@ -150,11 +145,11 @@ impl Panel {
             // Partially change background color based on the activity module.
             if let Some((color, value)) = self.background_activity {
                 unsafe {
-                    let width = (self.size.width as f64 * value).round() as i32;
+                    let width = (physical_size.width as f64 * value).round() as i32;
                     let [r, g, b] = color.as_f32();
 
                     gl::Enable(gl::SCISSOR_TEST);
-                    gl::Scissor(0, 0, width, self.size.height);
+                    gl::Scissor(0, 0, width, physical_size.height as i32);
 
                     gl::ClearColor(r, g, b, 1.);
                     gl::Clear(gl::COLOR_BUFFER_BIT);
@@ -163,18 +158,30 @@ impl Panel {
                 }
             }
 
-            Self::draw_modules(renderer, modules, renderer.size)
-        })
+            if let Err(err) =
+                Self::draw_modules(renderer, modules, physical_size.into(), self.scale)
+            {
+                error!("Failed drawer module rendering: {err}");
+            }
+        });
+
+        // Request a new frame.
+        let surface = self.window.wl_surface();
+        surface.frame(&self.queue, surface.clone());
+
+        // Apply surface changes.
+        surface.commit();
     }
 
     /// Render just the panel modules.
     fn draw_modules(
-        renderer: &mut Renderer,
+        renderer: &mut SizedRenderer,
         modules: &[&dyn Module],
         size: Size<f32>,
+        scale: f64,
     ) -> Result<()> {
         for alignment in [Alignment::Left, Alignment::Center, Alignment::Right] {
-            let mut run = PanelRun::new(renderer, size, alignment)?;
+            let mut run = PanelRun::new(renderer, size, scale, alignment)?;
             for module in modules
                 .iter()
                 .filter_map(|module| module.panel_module())
@@ -211,54 +218,50 @@ impl Panel {
         }
     }
 
+    /// Unstall the renderer.
+    ///
+    /// This will render a new frame if there currently is no frame request
+    /// pending.
+    pub fn unstall(&mut self, config: &Config, modules: &[&dyn Module]) {
+        // Ensure we actually draw even if renderer isn't stalled.
+        self.dirty = true;
+
+        // Ignore if unstalled.
+        if !mem::take(&mut self.stalled) {
+            return;
+        }
+
+        // Redraw immediately to unstall rendering.
+        self.draw(config, modules);
+        let _ = self.connection.flush();
+    }
+
     /// Check if the panel owns this surface.
     pub fn owns_surface(&self, surface: &WlSurface) -> bool {
         self.window.wl_surface() == surface
     }
 
-    /// Update the DPI scale factor.
-    pub fn set_scale_factor(&mut self, compositor: &CompositorState, scale_factor: f64) {
-        let factor_change = scale_factor / self.scale_factor;
-        self.scale_factor = scale_factor;
-
-        self.resize(compositor, self.size * factor_change);
-    }
-
-    /// Reconfigure the window.
-    pub fn reconfigure(&mut self, compositor: &CompositorState, configure: LayerSurfaceConfigure) {
-        // Update size.
-        let new_width = configure.new_size.0 as i32;
-        let size = Size::new(new_width, PANEL_HEIGHT) * self.scale_factor;
-        self.resize(compositor, size);
-    }
-
-    /// Request a new frame.
-    pub fn request_frame(&mut self) {
-        if self.frame_pending {
+    /// Update the window's logical size.
+    pub fn set_size(&mut self, compositor: &CompositorState, size: Size<u32>) {
+        if self.size == size {
             return;
         }
-        self.frame_pending = true;
 
-        let surface = self.window.wl_surface();
-        surface.frame(&self.queue, surface.clone());
-        surface.commit();
-    }
-
-    /// Resize the window.
-    fn resize(&mut self, compositor: &CompositorState, size: Size) {
         self.size = size;
 
-        // Update viewporter buffer target size.
-        let logical_size = size / self.scale_factor;
-        self.viewport.set_destination(logical_size.width, logical_size.height);
-
-        // Update opaque region.
+        // Update the window's opaque region.
+        //
+        // This is done here since it can only change on resize, but the commit happens
+        // atomically on redraw.
         if let Ok(region) = Region::new(compositor) {
-            region.add(0, 0, logical_size.width, logical_size.height);
+            region.add(0, 0, size.width as i32, size.height as i32);
             self.window.wl_surface().set_opaque_region(Some(region.wl_region()));
         }
+    }
 
-        let _ = self.renderer.resize(size, self.scale_factor);
+    /// Update the DPI scale factor.
+    pub fn set_scale_factor(&mut self, scale: f64) {
+        self.scale = scale;
     }
 
     /// Reset the background activity bar.
@@ -288,18 +291,23 @@ struct PanelRun<'a> {
     batcher: &'a mut VertexBatcher<TextRenderer>,
     rasterizer: &'a mut GlRasterizer,
     alignment: Alignment,
-    scale_factor: f64,
+    scale: f64,
     metrics: Metrics,
     size: Size<f32>,
     width: i16,
 }
 
 impl<'a> PanelRun<'a> {
-    fn new(renderer: &'a mut Renderer, size: Size<f32>, alignment: Alignment) -> Result<Self> {
+    fn new(
+        renderer: &'a mut SizedRenderer,
+        size: Size<f32>,
+        scale: f64,
+        alignment: Alignment,
+    ) -> Result<Self> {
         Ok(Self {
             alignment,
+            scale,
             size,
-            scale_factor: renderer.scale_factor,
             metrics: renderer.rasterizer.metrics()?,
             rasterizer: &mut renderer.rasterizer,
             batcher: &mut renderer.text_batcher,
@@ -378,11 +386,11 @@ impl<'a> PanelRun<'a> {
 
     /// Module padding with scale factor applied.
     fn module_padding(&self) -> i16 {
-        (MODULE_PADDING * self.scale_factor).round() as i16
+        (MODULE_PADDING * self.scale).round() as i16
     }
 
     /// Edge padding with scale factor applied.
     fn edge_padding(&self) -> i16 {
-        (EDGE_PADDING * self.scale_factor).round() as i16
+        (EDGE_PADDING * self.scale).round() as i16
     }
 }

@@ -9,6 +9,7 @@ use std::process::{Child, Command, Output, Stdio};
 
 use calloop::LoopHandle;
 use calloop::signals::{Signal, Signals};
+use tracing::error;
 
 use crate::{Result, State};
 
@@ -55,7 +56,7 @@ impl Reaper {
         let child = match child.spawn() {
             Ok(child) => child,
             Err(err) => {
-                eprintln!("Error: Child process failed: {err}");
+                error!("Error: Child process failed: {err}");
                 return;
             },
         };

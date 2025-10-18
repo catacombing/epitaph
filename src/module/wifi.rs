@@ -42,7 +42,7 @@ impl Wifi {
 
             // Request redraw only if SVG changed.
             if old_svg != state.modules.wifi.svg() || old_enabled != connection.enabled {
-                state.request_frame();
+                state.unstall();
             }
         })?;
 

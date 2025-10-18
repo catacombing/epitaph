@@ -6,6 +6,7 @@ use std::thread;
 use calloop::channel::{self, Channel, Sender};
 use futures_lite::StreamExt;
 use tokio::runtime::Builder;
+use tracing::error;
 use zbus::fdo::ObjectManagerProxy;
 use zbus::proxy::PropertyStream;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Type};
@@ -67,13 +68,13 @@ pub fn set_enabled(enabled: bool) {
             // Ensure modem's power state is `On` before enabling it.
             if enabled {
                 if let Err(err) = modem.set_power_state(PowerState::On as u32).await {
-                    eprintln!("Could not power modem on: {err}");
+                    error!("Could not power modem on: {err}");
                 }
             }
 
             // Set the modem state.
             if let Err(err) = modem.enable(enabled).await {
-                eprintln!("Modem state change failed: {err}");
+                error!("Modem state change failed: {err}");
             }
 
             // Set modem to lowest powerstate it can recover from.
@@ -82,7 +83,7 @@ pub fn set_enabled(enabled: bool) {
             // future.
             if !enabled {
                 if let Err(err) = modem.set_power_state(PowerState::Low as u32).await {
-                    eprintln!("Could not power modem off: {err}");
+                    error!("Could not power modem off: {err}");
                 }
             }
         }

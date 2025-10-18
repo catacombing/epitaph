@@ -41,7 +41,7 @@ impl Cellular {
 
             // Request redraw only if SVG changed.
             if old_svg != state.modules.cellular.svg() || old_enabled != connection.enabled {
-                state.request_frame();
+                state.unstall();
             }
         })?;
 

@@ -27,6 +27,8 @@ resvg = { version = "0.45.0", default-features = false }
 serde = { version = "1.0.219", features = ["derive"] }
 smithay-client-toolkit = { version = "0.20.0", default-features = false, features = ["xkbcommon"] }
 tokio = { version = "1.26.0", features = ["macros"] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 udev = "0.9.1"
 wayland-backend = { version = "0.3.3", features = ["client_system"] }
 zbus = { version = "5.1.1", default-features = false, features = ["tokio"] }

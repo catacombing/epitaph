@@ -10,6 +10,7 @@ use libpulse_binding::context::subscribe::InterestMaskSet;
 use libpulse_binding::context::{Context, FlagSet as ContextFlagSet, State as PulseState};
 use libpulse_binding::mainloop::standard::{IterateResult, Mainloop};
 use libpulse_binding::volume::Volume as PulseVolume;
+use tracing::error;
 
 use crate::config::{Color, Config};
 use crate::module::{Module, PanelBackgroundModule};
@@ -25,9 +26,7 @@ impl Volume {
 
         // Setup calloop channel for redrawing on volume change.
         let (ping, source) = ping::make_ping()?;
-        event_loop.insert_source(source, |_, _, state| {
-            state.request_frame();
-        })?;
+        event_loop.insert_source(source, |_, _, state| state.unstall())?;
 
         // Listen for volume changes.
         let volume_setter = volume.clone();
@@ -35,7 +34,7 @@ impl Volume {
             let mut pulse = match Pulseaudio::connect() {
                 Ok(pulse) => pulse,
                 Err(err) => {
-                    eprintln!("{err}");
+                    error!("{err}");
                     return;
                 },
             };
@@ -50,7 +49,7 @@ impl Volume {
             });
 
             if let Err(err) = pulse.run() {
-                eprintln!("{err}");
+                error!("{err}");
             }
         });
 

@@ -37,7 +37,7 @@ impl Battery {
             Self::update(&mut socket_enumerator, state);
 
             // Request new frame.
-            state.request_frame();
+            state.unstall();
 
             Ok(PostAction::Continue)
         })?;

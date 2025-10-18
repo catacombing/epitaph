@@ -14,7 +14,7 @@ pub struct Clock;
 impl Clock {
     pub fn new(event_loop: &LoopHandle<'static, State>) -> Result<Self> {
         event_loop.insert_source(Timer::immediate(), move |now, _, state| {
-            state.request_frame();
+            state.unstall();
 
             // Calculate seconds until next minute. We add one second just to be sure.
             let total_secs = UNIX_EPOCH.elapsed().unwrap().as_secs();

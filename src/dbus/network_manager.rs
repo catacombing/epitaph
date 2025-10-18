@@ -6,6 +6,7 @@ use std::thread;
 use calloop::channel::{self, Channel, Sender};
 use futures_lite::StreamExt;
 use tokio::runtime::Builder;
+use tracing::error;
 use zbus::proxy::{PropertyChanged, PropertyStream};
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Type};
 use zbus::{Connection, proxy};
@@ -60,7 +61,7 @@ pub fn set_enabled(enabled: bool) {
         let connection = Connection::system().await?;
         let network_manager = NetworkManagerProxy::new(&connection).await?;
         if let Err(err) = network_manager.set_wireless_enabled(enabled).await {
-            eprintln!("WiFi state change failed: {err}");
+            error!("WiFi state change failed: {err}");
         }
         Ok::<(), zbus::Error>(())
     };

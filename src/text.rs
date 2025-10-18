@@ -396,7 +396,7 @@ impl From<char> for CacheKey {
 }
 
 /// Built-in SVGs.
-#[derive(Copy, Clone, Hash, PartialEq, Eq)]
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
 pub enum Svg {
     BatteryCharging100,
     BatteryCharging80,

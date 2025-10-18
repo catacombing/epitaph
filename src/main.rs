@@ -1,10 +1,8 @@
 use std::error::Error;
-use std::ffi::CString;
-use std::ops::{Div, Mul};
-use std::process;
 use std::ptr::NonNull;
 use std::result::Result as StdResult;
 use std::time::Instant;
+use std::{env, process};
 
 use calloop::ping::{self, Ping};
 use calloop::timer::{TimeoutAction, Timer};
@@ -12,9 +10,7 @@ use calloop::{EventLoop, LoopHandle, RegistrationToken};
 use calloop_wayland_source::WaylandSource;
 use catacomb_ipc::{self, DpmsState, IpcMessage};
 use configory::{EventHandler as ConfigEventHandler, Manager, Options as ManagerOptions};
-use glutin::api::egl::display::Display;
-use glutin::config::ConfigTemplateBuilder;
-use glutin::prelude::*;
+use glutin::display::{Display, DisplayApiPreference};
 use raw_window_handle::{RawDisplayHandle, WaylandDisplayHandle};
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState};
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
@@ -35,6 +31,8 @@ use smithay_client_toolkit::{
     delegate_compositor, delegate_layer, delegate_output, delegate_registry, delegate_seat,
     delegate_touch, registry_handlers,
 };
+use tracing::{error, info};
+use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
 use crate::config::Config;
 use crate::drawer::{Drawer, HANDLE_HEIGHT};
@@ -57,6 +55,7 @@ use crate::reaper::Reaper;
 mod config;
 mod dbus;
 mod drawer;
+mod geometry;
 mod module;
 mod panel;
 mod protocols;
@@ -74,11 +73,18 @@ mod gl {
 pub type Result<T> = StdResult<T, Box<dyn Error>>;
 
 fn main() {
+    // Setup logging.
+    let directives = env::var("RUST_LOG").unwrap_or("warn,epitaph=info".into());
+    let env_filter = EnvFilter::builder().parse_lossy(directives);
+    FmtSubscriber::builder().with_env_filter(env_filter).with_line_number(true).init();
+
+    info!("Started Epitaph");
+
     // Initialize Wayland connection.
     let connection = match Connection::connect_to_env() {
         Ok(connection) => connection,
         Err(err) => {
-            eprintln!("Error: {err}");
+            error!("Error: {err}");
             process::exit(1);
         },
     };
@@ -97,8 +103,10 @@ fn main() {
     event_loop
         .handle()
         .insert_source(config_source, |_, _, state: &mut State| {
-            state.reload_config();
-            state.request_frame();
+            if let Some(config) = load_config(&state.config_manager) {
+                state.config = config;
+            }
+            state.unstall();
         })
         .expect("register config source");
 
@@ -134,8 +142,8 @@ pub struct State {
     last_touch_y: f64,
 
     touch: Option<WlTouch>,
-    drawer: Option<Drawer>,
-    panel: Option<Panel>,
+    drawer: Drawer,
+    panel: Panel,
 
     config_manager: Manager,
     config: Config,
@@ -159,12 +167,39 @@ impl State {
         // Create process reaper.
         let reaper = Reaper::new(&event_loop)?;
 
-        let mut state = Self {
+        // Get EGL display.
+        let display = NonNull::new(connection.backend().display_ptr().cast()).unwrap();
+        let wayland_display = WaylandDisplayHandle::new(display);
+        let raw_display = RawDisplayHandle::Wayland(wayland_display);
+        let egl_display = unsafe { Display::new(raw_display, DisplayApiPreference::Egl)? };
+
+        // Setup windows.
+        let config = load_config(&config_manager).unwrap_or_default();
+        let panel = Panel::new(
+            &config,
+            queue.handle(),
+            connection.clone(),
+            event_loop.clone(),
+            &protocol_states,
+            egl_display.clone(),
+        );
+        let drawer = Drawer::new(
+            &config,
+            queue.handle(),
+            connection.clone(),
+            &protocol_states,
+            egl_display.clone(),
+        );
+
+        Ok(Self {
             protocol_states,
             config_manager,
             event_loop,
             modules,
+            config,
+            drawer,
             reaper,
+            panel,
             drawer_opening: Default::default(),
             active_touch: Default::default(),
             panel_height: Default::default(),
@@ -173,120 +208,49 @@ impl State {
             tap_timeout: Default::default(),
             terminated: Default::default(),
             last_tap: Default::default(),
-            config: Default::default(),
-            drawer: Default::default(),
             touch: Default::default(),
-            panel: Default::default(),
-        };
-
-        // Load initial config.
-        state.reload_config();
-
-        state.init_windows(connection, queue)?;
-
-        Ok(state)
-    }
-
-    /// Initialize the panel/drawer windows and their EGL surfaces.
-    fn init_windows(&mut self, connection: &Connection, queue: &EventQueue<Self>) -> Result<()> {
-        let display = NonNull::new(connection.backend().display_ptr().cast()).unwrap();
-        let wayland_display = WaylandDisplayHandle::new(display);
-        let raw_display_handle = RawDisplayHandle::Wayland(wayland_display);
-
-        // Setup the OpenGL window.
-        let gl_display = unsafe { Display::new(raw_display_handle)? };
-
-        let template = ConfigTemplateBuilder::new()
-            .with_alpha_size(8)
-            .with_stencil_size(0)
-            .with_depth_size(0)
-            .build();
-
-        let egl_config = unsafe {
-            gl_display.find_configs(template)?.next().expect("no suitable EGL configs were found")
-        };
-
-        // Load the OpenGL symbols.
-        gl::load_with(|symbol| {
-            let symbol = CString::new(symbol).unwrap();
-            gl_display.get_proc_address(symbol.as_c_str()).cast()
-        });
-
-        // Setup panel window.
-        self.panel = Some(Panel::new(
-            &self.config,
-            queue.handle(),
-            self.event_loop.clone(),
-            &self.protocol_states,
-            &egl_config,
-        )?);
-
-        // Setup drawer window.
-        self.drawer =
-            Some(Drawer::new(&self.config, queue.handle(), &self.protocol_states, &egl_config)?);
-
-        Ok(())
+        })
     }
 
     /// Draw window associated with the surface.
     fn draw(&mut self, surface: &WlSurface) {
-        if self.panel().owns_surface(surface) {
-            if let Err(err) =
-                self.panel.as_mut().unwrap().draw(&self.config, &self.modules.as_slice())
-            {
-                eprintln!("Panel rendering failed: {err}");
-            }
-        } else if self.drawer().owns_surface(surface) {
+        if self.panel.owns_surface(surface) {
+            self.panel.draw(&self.config, &self.modules.as_slice());
+        } else if self.drawer.owns_surface(surface) {
             let compositor = &self.protocol_states.compositor;
             let modules = &mut self.modules.as_slice_mut();
-            let drawer = self.drawer.as_mut().unwrap();
-            if let Err(err) = drawer.draw(&self.config, compositor, modules, self.drawer_opening) {
-                eprintln!("Drawer rendering failed: {err}");
-            }
+            self.drawer.draw(&self.config, compositor, modules, self.drawer_opening);
         }
     }
 
-    /// Request new frame for all windows.
-    fn request_frame(&mut self) {
-        self.drawer().request_frame();
-        self.panel().request_frame();
+    /// Unstall all renderers.
+    fn unstall(&mut self) {
+        let compositor = &self.protocol_states.compositor;
+        let modules = &mut self.modules.as_slice_mut();
+        self.drawer.unstall(&self.config, compositor, modules, self.drawer_opening);
+
+        self.panel.unstall(&self.config, &self.modules.as_slice());
     }
 
     /// Set drawer status without animation.
     fn set_drawer_status(&mut self, open: bool) {
-        let drawer = self.drawer.as_mut().unwrap();
         if open {
             // Show drawer on panel single-tap with drawer closed.
-            drawer.offset = drawer.max_offset();
-            drawer.request_frame();
+            self.drawer.offset = self.drawer.max_offset();
+            let compositor = &self.protocol_states.compositor;
+            let modules = &mut self.modules.as_slice_mut();
+            self.drawer.unstall(&self.config, compositor, modules, self.drawer_opening);
         } else {
             // Hide drawer on single-tap of panel or drawer handle.
-            drawer.offset = 0.;
-            drawer.hide();
+            self.drawer.offset = 0.;
+            self.drawer.hide();
         }
     }
 
     /// Remove the panel's background activity bar.
     fn clear_background_activity(&mut self) {
-        self.panel().clear_background_activity();
-        self.request_frame();
-    }
-
-    /// Reload the configuration.
-    fn reload_config(&mut self) {
-        match self.config_manager.get::<&str, Config>(&[]) {
-            Ok(config) => self.config = config.unwrap_or_default(),
-            // Avoid resetting active config on error.
-            Err(err) => eprintln!("Config error: {err}"),
-        }
-    }
-
-    fn drawer(&mut self) -> &mut Drawer {
-        self.drawer.as_mut().expect("Drawer window access before initialization")
-    }
-
-    fn panel(&mut self) -> &mut Panel {
-        self.panel.as_mut().expect("Panel window access before initialization")
+        self.panel.clear_background_activity();
+        self.unstall();
     }
 }
 
@@ -355,12 +319,17 @@ impl FractionalScaleHandler for State {
         surface: &WlSurface,
         factor: f64,
     ) {
-        if self.panel().owns_surface(surface) {
-            self.panel.as_mut().unwrap().set_scale_factor(&self.protocol_states.compositor, factor);
-        } else if self.drawer().owns_surface(surface) {
-            self.drawer().set_scale_factor(factor);
+        if self.panel.owns_surface(surface) {
+            self.panel.set_scale_factor(factor);
+
+            self.panel.unstall(&self.config, &self.modules.as_slice());
+        } else if self.drawer.owns_surface(surface) {
+            self.drawer.set_scale_factor(factor);
+
+            let compositor = &self.protocol_states.compositor;
+            let modules = &mut self.modules.as_slice_mut();
+            self.drawer.unstall(&self.config, compositor, modules, self.drawer_opening);
         }
-        self.draw(surface);
     }
 }
 
@@ -408,13 +377,18 @@ impl LayerShellHandler for State {
         _serial: u32,
     ) {
         let surface = layer.wl_surface();
-        if self.panel().owns_surface(surface) {
-            self.panel.as_mut().unwrap().reconfigure(&self.protocol_states.compositor, configure);
-        } else if self.drawer().owns_surface(surface) {
+        if self.panel.owns_surface(surface) {
+            self.panel.set_size(&self.protocol_states.compositor, configure.new_size.into());
+
+            self.panel.unstall(&self.config, &self.modules.as_slice());
+        } else if self.drawer.owns_surface(surface) {
             self.panel_height = Some(configure.new_size.1);
-            self.drawer().reconfigure(configure);
+            self.drawer.set_size(configure.new_size.into());
+
+            let compositor = &self.protocol_states.compositor;
+            let modules = &mut self.modules.as_slice_mut();
+            self.drawer.unstall(&self.config, compositor, modules, self.drawer_opening);
         }
-        self.draw(surface);
     }
 }
 
@@ -466,22 +440,18 @@ impl TouchHandler for State {
         id: i32,
         position: (f64, f64),
     ) {
-        let drawer = self.drawer.as_mut().unwrap();
-        let panel = self.panel.as_ref().unwrap();
-
-        if self.active_touch.is_none() && panel.owns_surface(&surface) {
+        if self.active_touch.is_none() && self.panel.owns_surface(&surface) {
             let compositor = &self.protocol_states.compositor;
             let modules = &mut self.modules.as_slice_mut();
-            if let Err(err) = drawer.show(&self.config, compositor, modules, self.drawer_opening) {
-                eprintln!("Drawer opening failed: {err}");
-            }
+            self.drawer.show(&self.config, compositor, modules, self.drawer_opening);
 
             self.last_touch_y = position.1;
             self.touch_start = position;
             self.active_touch = Some(id);
             self.drawer_opening = true;
-        } else if drawer.owns_surface(&surface) {
-            let touch_start = drawer.touch_down(id, position, &mut self.modules.as_slice_mut());
+        } else if self.drawer.owns_surface(&surface) {
+            let touch_start =
+                self.drawer.touch_down(id, position.into(), &mut self.modules.as_slice_mut());
 
             // Check drawer touch status.
             if !touch_start.module_touched {
@@ -492,7 +462,7 @@ impl TouchHandler for State {
                 self.drawer_opening = false;
             } else if touch_start.requires_redraw {
                 // Redraw if slider was touched.
-                self.request_frame();
+                self.unstall();
             }
         }
     }
@@ -506,15 +476,13 @@ impl TouchHandler for State {
         _time: u32,
         id: i32,
     ) {
-        let drawer = self.drawer.as_mut().unwrap();
-
         // Handle non-module touch events.
         if self.active_touch == Some(id) {
             let last_tap = self.last_tap.take();
             self.active_touch = None;
 
             // Handle short taps.
-            if !drawer.offsetting {
+            if !self.drawer.offsetting {
                 let multi_tap_interval = self.config.input.multi_tap_interval;
                 if last_tap.is_some_and(|tap| tap.elapsed() <= multi_tap_interval) {
                     // Remove delayed single-tap callback.
@@ -546,14 +514,17 @@ impl TouchHandler for State {
                 self.last_tap = Some(Instant::now());
             // Handle drawer dragging.
             } else {
-                drawer.start_animation();
+                self.drawer.start_animation();
+
+                let compositor = &self.protocol_states.compositor;
+                let modules = &mut self.modules.as_slice_mut();
+                self.drawer.unstall(&self.config, compositor, modules, self.drawer_opening);
             }
         // Handle module touch events.
         } else {
-            let dirty = drawer.touch_up(id, &mut self.modules.as_slice_mut());
-
+            let dirty = self.drawer.touch_up(id, &mut self.modules.as_slice_mut());
             if dirty {
-                self.request_frame();
+                self.unstall();
             }
         }
     }
@@ -577,21 +548,20 @@ impl TouchHandler for State {
 
             let delta = position.1 - self.last_touch_y;
 
-            let drawer = self.drawer();
-            drawer.offsetting = true;
-            drawer.offset += delta;
-            drawer.request_frame();
+            self.drawer.offsetting = true;
+            self.drawer.offset += delta;
+
+            let compositor = &self.protocol_states.compositor;
+            let modules = &mut self.modules.as_slice_mut();
+            self.drawer.unstall(&self.config, compositor, modules, self.drawer_opening);
 
             self.last_touch_y = position.1;
         } else {
-            let dirty = self.drawer.as_mut().unwrap().touch_motion(
-                id,
-                position,
-                &mut self.modules.as_slice_mut(),
-            );
+            let dirty =
+                self.drawer.touch_motion(id, position.into(), &mut self.modules.as_slice_mut());
 
             if dirty {
-                self.request_frame();
+                self.unstall();
             }
         }
     }
@@ -728,40 +698,14 @@ impl ConfigEventHandler<()> for ConfigNotify {
     }
 }
 
-#[derive(Copy, Clone, Default, Debug)]
-pub struct Size<T = i32> {
-    pub width: T,
-    pub height: T,
-}
-
-impl<T> Size<T> {
-    fn new(width: T, height: T) -> Self {
-        Self { width, height }
-    }
-}
-
-impl From<Size> for Size<f32> {
-    fn from(from: Size) -> Self {
-        Self { width: from.width as f32, height: from.height as f32 }
-    }
-}
-
-impl Mul<f64> for Size {
-    type Output = Self;
-
-    fn mul(mut self, factor: f64) -> Self {
-        self.width = (self.width as f64 * factor) as i32;
-        self.height = (self.height as f64 * factor) as i32;
-        self
-    }
-}
-
-impl Div<f64> for Size {
-    type Output = Self;
-
-    fn div(mut self, factor: f64) -> Self {
-        self.width = (self.width as f64 / factor).round() as i32;
-        self.height = (self.height as f64 / factor).round() as i32;
-        self
+/// Reload the configuration.
+fn load_config(config_manager: &Manager) -> Option<Config> {
+    match config_manager.get::<&str, Config>(&[]) {
+        Ok(config) => Some(config.unwrap_or_default()),
+        // Avoid resetting active config on error.
+        Err(err) => {
+            error!("Config error: {err}");
+            None
+        },
     }
 }
