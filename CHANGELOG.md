@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## Unreleased
 
+### Fixed
+
+- Excessive redraws due to cellular module
+
 ## 1.0.2 - 2025-10-03
 
 ### Fixed

@@ -40,7 +40,7 @@ impl Cellular {
             module.connection = connection;
 
             // Request redraw only if SVG changed.
-            if old_svg != state.modules.wifi.svg() || old_enabled != connection.enabled {
+            if old_svg != state.modules.cellular.svg() || old_enabled != connection.enabled {
                 state.request_frame();
             }
         })?;
