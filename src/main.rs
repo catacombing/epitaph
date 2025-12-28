@@ -43,6 +43,7 @@ use crate::module::cellular::Cellular;
 use crate::module::clock::Clock;
 use crate::module::date::Date;
 use crate::module::flashlight::Flashlight;
+use crate::module::gps::Gps;
 use crate::module::orientation::Orientation;
 use crate::module::scale::Scale;
 use crate::module::volume::Volume;
@@ -72,7 +73,8 @@ mod gl {
 /// Convenience result wrapper.
 pub type Result<T> = StdResult<T, Box<dyn Error>>;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     // Setup logging.
     let directives = env::var("RUST_LOG").unwrap_or("warn,epitaph=info".into());
     let env_filter = EnvFilter::builder().parse_lossy(directives);
@@ -636,6 +638,7 @@ struct Modules {
     clock: Clock,
     wifi: Wifi,
     date: Date,
+    gps: Gps,
 }
 
 impl Modules {
@@ -649,19 +652,21 @@ impl Modules {
             volume: Volume::new(event_loop)?,
             clock: Clock::new(event_loop)?,
             wifi: Wifi::new(event_loop)?,
+            gps: Gps::new(event_loop)?,
             scale: Scale::new(),
             date: Date::new()?,
         })
     }
 
     /// Get all modules as sorted immutable slice.
-    fn as_slice(&self) -> [&dyn Module; 10] {
+    fn as_slice(&self) -> [&dyn Module; 11] {
         [
             &self.brightness,
             &self.scale,
             &self.clock,
             &self.cellular,
             &self.wifi,
+            &self.gps,
             &self.battery,
             &self.orientation,
             &self.flashlight,
@@ -671,13 +676,14 @@ impl Modules {
     }
 
     /// Get all modules as sorted mutable slice.
-    fn as_slice_mut(&mut self) -> [&mut dyn Module; 10] {
+    fn as_slice_mut(&mut self) -> [&mut dyn Module; 11] {
         [
             &mut self.brightness,
             &mut self.scale,
             &mut self.clock,
             &mut self.cellular,
             &mut self.wifi,
+            &mut self.gps,
             &mut self.battery,
             &mut self.orientation,
             &mut self.flashlight,

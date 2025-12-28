@@ -19,7 +19,7 @@ pub struct Cellular {
 impl Cellular {
     pub fn new(event_loop: &LoopHandle<'static, State>) -> Result<Self> {
         // Subscribe to ModemManager DBus events.
-        let rx = modem_manager::modem_listener()?;
+        let rx = modem_manager::modem_listener();
         event_loop.insert_source(rx, move |event, _, state| {
             let connection = match event {
                 Event::Msg(connection) => connection,

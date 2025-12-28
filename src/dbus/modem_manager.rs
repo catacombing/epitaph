@@ -1,16 +1,19 @@
 //! ModemManager DBus interface.
 
 use std::error::Error;
-use std::thread;
+use std::future;
 
 use calloop::channel::{self, Channel, Sender};
 use futures_lite::StreamExt;
-use tokio::runtime::Builder;
+use tokio::task::JoinSet;
 use tracing::error;
 use zbus::fdo::ObjectManagerProxy;
 use zbus::proxy::PropertyStream;
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Type};
 use zbus::{Connection, proxy};
+
+/// Minimum GPS refresh rate in seconds.
+const MIN_GPS_REFRESH: u32 = 30;
 
 /// Cellular connection status.
 #[derive(PartialEq, Eq, Default, Copy, Clone, Debug)]
@@ -44,59 +47,14 @@ impl ModemConnection {
 }
 
 /// Get calloop channel for cellular signal strength changes.
-pub fn modem_listener() -> Result<Channel<ModemConnection>, Box<dyn Error>> {
+pub fn modem_listener() -> Channel<ModemConnection> {
     let (tx, rx) = channel::channel();
-    thread::spawn(|| {
-        let mut builder = Builder::new_current_thread();
-        let runtime = builder.enable_all().build().expect("create tokio runtime");
-        runtime.block_on(run_dbus_loop(tx)).expect("execute tokio runtime");
-    });
-    Ok(rx)
-}
-
-/// Set ModemManager modem states.
-pub fn set_enabled(enabled: bool) {
-    // Async function for updating the state of every modem.
-    let set_modem_state = move || async move {
-        // Get all active modems.
-        let connection = Connection::system().await?;
-        let object_manager = object_manager(&connection).await?;
-        let modems = active_modems(&connection, &object_manager).await;
-
-        // Set the state for each one.
-        for (modem, _) in modems {
-            // Ensure modem's power state is `On` before enabling it.
-            if enabled {
-                if let Err(err) = modem.set_power_state(PowerState::On as u32).await {
-                    error!("Could not power modem on: {err}");
-                }
-            }
-
-            // Set the modem state.
-            if let Err(err) = modem.enable(enabled).await {
-                error!("Modem state change failed: {err}");
-            }
-
-            // Set modem to lowest powerstate it can recover from.
-            //
-            // Setting it to `PowerState::Off` will prevent turning it back on in the
-            // future.
-            if !enabled {
-                if let Err(err) = modem.set_power_state(PowerState::Low as u32).await {
-                    error!("Could not power modem off: {err}");
-                }
-            }
+    tokio::spawn(async move {
+        if let Err(err) = run_dbus_loop(tx).await {
+            error!("Modem DBus listener failed: {err}");
         }
-
-        Ok::<(), zbus::Error>(())
-    };
-
-    // Spawn async executor for the WiFi update on a new thread.
-    thread::spawn(move || {
-        let mut builder = Builder::new_current_thread();
-        let runtime = builder.enable_all().build().expect("create tokio runtime");
-        runtime.block_on(set_modem_state()).expect("execute tokio runtime");
     });
+    rx
 }
 
 /// Run the DBus cellular event loop.
@@ -149,7 +107,7 @@ async fn run_dbus_loop(tx: Sender<ModemConnection>) -> Result<(), Box<dyn Error>
         };
 
         // Get first available modem.
-        let (modem, modem3gpp) = match modems.first() {
+        let (modem, modem3gpp, _) = match modems.first() {
             Some(modem) => modem,
             None => {
                 tx.send(ModemConnection::default())?;
@@ -163,8 +121,183 @@ async fn run_dbus_loop(tx: Sender<ModemConnection>) -> Result<(), Box<dyn Error>
     }
 }
 
+/// Set ModemManager modem states.
+pub fn set_enabled(enabled: bool) {
+    // Async function for updating the state of every modem.
+    let set_modem_state = move || async move {
+        // Get all active modems.
+        let connection = Connection::system().await?;
+        let object_manager = object_manager(&connection).await?;
+        let modems = active_modems(&connection, &object_manager).await;
+
+        // Set the state for each one.
+        for (modem, ..) in modems {
+            // Ensure modem's power state is `On` before enabling it.
+            if enabled {
+                if let Err(err) = modem.set_power_state(PowerState::On as u32).await {
+                    error!("Could not power modem on: {err}");
+                }
+            }
+
+            // Set the modem state.
+            if let Err(err) = modem.enable(enabled).await {
+                error!("Modem state change failed: {err}");
+            }
+
+            // Set modem to lowest powerstate it can recover from.
+            //
+            // Setting it to `PowerState::Off` will prevent turning it back on in the
+            // future.
+            if !enabled {
+                if let Err(err) = modem.set_power_state(PowerState::Low as u32).await {
+                    error!("Could not power modem off: {err}");
+                }
+            }
+        }
+
+        Ok::<(), zbus::Error>(())
+    };
+
+    // Spawn async executor for the WiFi update.
+    tokio::spawn(async move {
+        if let Err(err) = set_modem_state().await {
+            error!("Failed to set modem enabled state to {enabled}: {err}");
+        }
+    });
+}
+
+/// Get calloop channel for GPS status changes.
+pub fn gps_listener() -> Channel<bool> {
+    let (tx, rx) = channel::channel();
+    tokio::spawn(async move {
+        if let Err(err) = run_gps_dbus_loop(tx).await {
+            error!("Modem GPS DBus listener failed: {err}");
+        }
+    });
+    rx
+}
+
+/// Run the DBus GPS event loop.
+async fn run_gps_dbus_loop(tx: Sender<bool>) -> Result<(), Box<dyn Error>> {
+    let connection = Connection::system().await?;
+
+    // Create object manager for modem changes.
+    let object_manager = object_manager(&connection).await?;
+
+    // Fill list of active modems.
+    let mut modems = active_modems(&connection, &object_manager).await;
+
+    // Get stream for modem changes.
+    let mut modem_added_stream = object_manager.receive_interfaces_added().await?;
+    let mut modem_removed_stream = object_manager.receive_interfaces_removed().await?;
+
+    loop {
+        tokio::select! {
+            // Wait for raw GPS status changes.
+            _ = gps_enabled_changed(&modems) => (),
+
+            // Wait for new/removed modems.
+            Some(_) = modem_added_stream.next() => {
+                modems = active_modems(&connection, &object_manager).await;
+            },
+            Some(_) = modem_removed_stream.next() => {
+                modems = active_modems(&connection, &object_manager).await;
+            },
+
+            else => continue,
+        };
+
+        // Check whether any modem has GPS enabled.
+        let gps_raw = ModemLocationSource::GpsRaw as u32;
+        let mut gps_enabled = false;
+        for (_, _, location) in &modems {
+            let enabled = location.enabled().await.unwrap_or(0);
+            if enabled & gps_raw != 0 {
+                gps_enabled = true;
+                break;
+            }
+        }
+
+        // Send GPS state change.
+        tx.send(gps_enabled)?;
+    }
+}
+
+/// Set ModemManager GPS state.
+pub fn set_gps_enabled(enabled: bool) {
+    // Async function for updating the GPS state of every modem.
+    let set_modem_state = move || async move {
+        // Get all active modems.
+        let connection = Connection::system().await?;
+        let object_manager = object_manager(&connection).await?;
+        let modems = active_modems(&connection, &object_manager).await;
+
+        // Set the state for each one.
+        for (_, _, location) in modems {
+            // Get current GPS refresh rate and enabled sources.
+            let refresh_rate = location.gps_refresh_rate().await.unwrap_or(u32::MAX);
+            let sources = location.enabled().await.unwrap_or(0);
+
+            // No enable, refresh rate if it is above the minimum.
+            if enabled
+                && refresh_rate > MIN_GPS_REFRESH
+                && let Err(err) = location.set_gps_refresh_rate(MIN_GPS_REFRESH).await
+            {
+                error!("Failed to update GPS refresh rate: {err}");
+            }
+
+            // Enable raw GPS mode if it is not already enabled.
+            let target_sources = if enabled {
+                sources | ModemLocationSource::GpsRaw as u32
+            } else {
+                sources & !(ModemLocationSource::GpsRaw as u32)
+            };
+            if sources != target_sources
+                && let Err(err) = location.setup(target_sources, false).await
+            {
+                error!("Failed to set raw GPS enabled state to {enabled}: {err}");
+            }
+        }
+
+        Ok::<(), zbus::Error>(())
+    };
+
+    tokio::spawn(async move {
+        if let Err(err) = set_modem_state().await {
+            error!("Failed to set modem enabled state to {enabled}: {err}");
+        }
+    });
+}
+
+/// Await raw GPS enable state changes.
+async fn gps_enabled_changed(
+    modems: &[(ModemProxy<'static>, Modem3gppProxy<'static>, LocationProxy<'static>)],
+) {
+    // Avoid hot loop without modem GPS source.
+    if modems.is_empty() {
+        future::pending::<()>().await;
+        return;
+    }
+
+    let mut set = JoinSet::new();
+
+    // Spawn a future for each modem location proxy.
+    //
+    // The streams must be polled twice, since the first event will fire immediately
+    // for the current state.
+    for (_, _, proxy) in modems {
+        let mut enabled_stream = proxy.receive_enabled_changed().await;
+        set.spawn(async move {
+            enabled_stream.next().await;
+            enabled_stream.next().await;
+        });
+    }
+
+    set.join_next().await;
+}
+
 /// Create object manager for tracking DBus modem objects
-async fn object_manager(connection: &Connection) -> zbus::Result<ObjectManagerProxy<'_>> {
+async fn object_manager(connection: &Connection) -> zbus::Result<ObjectManagerProxy<'static>> {
     ObjectManagerProxy::builder(connection)
         .destination("org.freedesktop.ModemManager1")?
         .path("/org/freedesktop/ModemManager1")?
@@ -173,22 +306,23 @@ async fn object_manager(connection: &Connection) -> zbus::Result<ObjectManagerPr
 }
 
 /// Get all active modems from the object manager.
-async fn active_modems<'a>(
-    connection: &'a Connection,
-    object_manager: &'a ObjectManagerProxy<'a>,
-) -> Vec<(ModemProxy<'a>, Modem3gppProxy<'a>)> {
+async fn active_modems(
+    connection: &Connection,
+    object_manager: &ObjectManagerProxy<'_>,
+) -> Vec<(ModemProxy<'static>, Modem3gppProxy<'static>, LocationProxy<'static>)> {
     let managed_objects = object_manager.get_managed_objects().await;
 
     let mut modems = Vec::new();
     for (path, _) in managed_objects.into_iter().flatten() {
         if path.starts_with("/org/freedesktop/ModemManager1/Modem/") {
-            let (modem, modem3gpp) = tokio::join!(
+            let (modem, modem3gpp, gps) = tokio::join!(
                 modem_from_path(connection, path.clone()),
-                modem3gpp_from_path(connection, path),
+                modem3gpp_from_path(connection, path.clone()),
+                location_from_path(connection, path),
             );
 
-            if let (Ok(modem), Ok(modem3gpp)) = (modem, modem3gpp) {
-                modems.push((modem, modem3gpp));
+            if let (Ok(modem), Ok(modem3gpp), Ok(gps)) = (modem, modem3gpp, gps) {
+                modems.push((modem, modem3gpp, gps));
             }
         }
     }
@@ -198,13 +332,13 @@ async fn active_modems<'a>(
 
 /// Get modem state/signal quality streams.
 async fn primary_modem_streams<'a>(
-    modems: &[(ModemProxy<'a>, Modem3gppProxy<'a>)],
+    modems: &[(ModemProxy<'a>, Modem3gppProxy<'a>, LocationProxy<'a>)],
 ) -> Option<(
     PropertyStream<'a, RegistrationState>,
     PropertyStream<'a, ModemState>,
     PropertyStream<'a, (u32, bool)>,
 )> {
-    let (modem, modem3gpp) = modems.first()?;
+    let (modem, modem3gpp, _) = modems.first()?;
 
     let registration_stream = modem3gpp.receive_registration_state_changed().await;
     let connectivity_stream = modem.receive_modem_state_changed().await;
@@ -217,7 +351,7 @@ async fn primary_modem_streams<'a>(
 async fn modem_from_path(
     connection: &Connection,
     device_path: OwnedObjectPath,
-) -> zbus::Result<ModemProxy<'_>> {
+) -> zbus::Result<ModemProxy<'static>> {
     ModemProxy::builder(connection).path(device_path)?.build().await
 }
 
@@ -225,8 +359,16 @@ async fn modem_from_path(
 async fn modem3gpp_from_path(
     connection: &Connection,
     device_path: OwnedObjectPath,
-) -> zbus::Result<Modem3gppProxy<'_>> {
+) -> zbus::Result<Modem3gppProxy<'static>> {
     Modem3gppProxy::builder(connection).path(device_path)?.build().await
+}
+
+/// Try and convert a DBus device path to a location proxy.
+async fn location_from_path(
+    connection: &Connection,
+    device_path: OwnedObjectPath,
+) -> zbus::Result<LocationProxy<'static>> {
+    LocationProxy::builder(connection).path(device_path)?.build().await
 }
 
 #[proxy(
@@ -961,4 +1103,31 @@ pub enum ModemState {
     /// Subsequent bearer activations when another bearer is already active do
     /// not cause this state to be entered.
     Connecting = 11,
+}
+
+// Sources of location information supported by the modem.
+#[derive(Type, OwnedValue, PartialEq, Debug, PartialOrd)]
+#[repr(u32)]
+pub enum ModemLocationSource {
+    None = 0,
+    // Location Area Code and Cell ID.
+    LacCi = 1 << 0,
+    // GPS location given by predefined keys.
+    GpsRaw = 1 << 1,
+    // GPS location given as NMEA traces.
+    GpsNmea = 1 << 2,
+    // CDMA base station position.
+    CdmaBs = 1 << 3,
+    // No location given, just GPS module setup. Since 1.4.
+    GpsUnmanaged = 1 << 4,
+    // Mobile Station Assisted A-GPS location requested. In MSA A-GPS, the position fix is
+    // computed by a server online. The modem must have a valid SIM card inserted and be enabled
+    // for this mode to be allowed. Since 1.12.
+    AgpsMsa = 1 << 5,
+    // Mobile Station Based A-GPS location requested. In MSB A-GPS, the position fix is computed
+    // by the modem, but it first gathers information from an online server to facilitate the
+    // process (e.g. ephemeris). The modem must have a valid SIM card inserted and be enabled for
+    // this mode to be allowed. Since 1.12.
+    // AgpsMsb = 64,
+    AgpsMsb = 1 << 6,
 }

@@ -20,7 +20,7 @@ pub struct Wifi {
 impl Wifi {
     pub fn new(event_loop: &LoopHandle<'static, State>) -> Result<Self> {
         // Subscribe to NetworkManager DBus events.
-        let rx = network_manager::wifi_listener()?;
+        let rx = network_manager::wifi_listener();
         event_loop.insert_source(rx, move |event, _, state| {
             let connection = match event {
                 Event::Msg(connection) => connection,

@@ -1,11 +1,9 @@
 //! NetworkManager DBus interface.
 
 use std::error::Error;
-use std::thread;
 
 use calloop::channel::{self, Channel, Sender};
 use futures_lite::StreamExt;
-use tokio::runtime::Builder;
 use tracing::error;
 use zbus::proxy::{PropertyChanged, PropertyStream};
 use zbus::zvariant::{OwnedObjectPath, OwnedValue, Type};
@@ -67,22 +65,22 @@ pub fn set_enabled(enabled: bool) {
     };
 
     // Spawn async executor for the WiFi update on a new thread.
-    thread::spawn(move || {
-        let mut builder = Builder::new_current_thread();
-        let runtime = builder.enable_all().build().expect("create tokio runtime");
-        runtime.block_on(set_wifi_state(enabled)).expect("execute tokio runtime");
+    tokio::spawn(async move {
+        if let Err(err) = set_wifi_state(enabled).await {
+            error!("Failed to set WiFi enabled state to {enabled}: {err}");
+        }
     });
 }
 
 /// Get calloop channel for wifi signal strength changes.
-pub fn wifi_listener() -> Result<Channel<WifiConnection>, Box<dyn Error>> {
+pub fn wifi_listener() -> Channel<WifiConnection> {
     let (tx, rx) = channel::channel();
-    thread::spawn(|| {
-        let mut builder = Builder::new_current_thread();
-        let runtime = builder.enable_all().build().expect("create tokio runtime");
-        runtime.block_on(run_dbus_loop(tx)).expect("execute tokio runtime");
+    tokio::spawn(async {
+        if let Err(err) = run_dbus_loop(tx).await {
+            error!("Modem WiFi listener failed: {err}");
+        }
     });
-    Ok(rx)
+    rx
 }
 
 /// Run the DBus WiFi event loop.

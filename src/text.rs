@@ -434,6 +434,8 @@ pub enum Svg {
     Scale,
     ArrowUp,
     ArrowDown,
+    GpsOn,
+    GpsOff,
 }
 
 impl Svg {
@@ -476,6 +478,8 @@ impl Svg {
             Self::Scale => (11, 7),
             Self::ArrowUp => (64, 64),
             Self::ArrowDown => (64, 64),
+            Self::GpsOn => (32, 32),
+            Self::GpsOff => (32, 32),
         }
     }
 
@@ -520,6 +524,8 @@ impl Svg {
             Self::Scale => include_str!("../svgs/scale/scale.svg"),
             Self::ArrowUp => include_str!("../svgs/arrow_up.svg"),
             Self::ArrowDown => include_str!("../svgs/arrow_down.svg"),
+            Self::GpsOn => include_str!("../svgs/gps/gps_on.svg"),
+            Self::GpsOff => include_str!("../svgs/gps/gps_off.svg"),
         }
     }
 }

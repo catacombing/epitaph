@@ -10,6 +10,7 @@ pub mod cellular;
 pub mod clock;
 pub mod date;
 pub mod flashlight;
+pub mod gps;
 pub mod orientation;
 pub mod scale;
 pub mod volume;
