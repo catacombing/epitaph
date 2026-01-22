@@ -147,13 +147,13 @@ pub struct State {
     drawer: Drawer,
     panel: Panel,
 
-    config_manager: Manager,
+    config_manager: Manager<ConfigNotify>,
     config: Config,
 }
 
 impl State {
     fn new(
-        config_manager: Manager,
+        config_manager: Manager<ConfigNotify>,
         connection: &Connection,
         globals: &GlobalList,
         queue: &EventQueue<Self>,
@@ -698,14 +698,16 @@ struct ConfigNotify {
     ping: Ping,
 }
 
-impl ConfigEventHandler<()> for ConfigNotify {
+impl ConfigEventHandler for ConfigNotify {
+    type MessageData = ();
+
     fn file_changed(&self, _config: &configory::Config) {
         self.ping.ping();
     }
 }
 
 /// Reload the configuration.
-fn load_config(config_manager: &Manager) -> Option<Config> {
+fn load_config(config_manager: &Manager<ConfigNotify>) -> Option<Config> {
     match config_manager.get::<&str, Config>(&[]) {
         Ok(config) => Some(config.unwrap_or_default()),
         // Avoid resetting active config on error.
