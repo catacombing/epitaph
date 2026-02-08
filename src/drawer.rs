@@ -143,7 +143,6 @@ impl Drawer {
 
     /// Hide the drawer window.
     pub fn hide(&mut self) {
-        println!("HIDE");
         self.visible = false;
 
         // Immediately detach the buffer, unmapping and hiding the window.
@@ -301,7 +300,6 @@ impl Drawer {
 
     /// Update the window's logical size.
     pub fn set_size(&mut self, size: Size<u32>) {
-        println!("SIZE CHANGE: {:?}", size);
         if self.size == size {
             return;
         }
