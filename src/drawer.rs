@@ -131,24 +131,22 @@ impl Drawer {
     }
 
     /// Show the drawer window.
-    pub fn show(
-        &mut self,
-        config: &Config,
-        compositor: &CompositorState,
-        modules: &mut [&mut dyn Module],
-        opening: bool,
-    ) {
+    pub fn show(&mut self) {
         self.visible = true;
 
-        // Immediately render the first frame.
-        self.draw(config, compositor, modules, opening)
+        // Reconfigure window, since it is currently unmapped.
+        self.window.set_anchor(Anchor::LEFT | Anchor::TOP | Anchor::RIGHT | Anchor::BOTTOM);
+        self.window.set_exclusive_zone(-1);
+        self.stalled = true;
+        self.window.wl_surface().commit();
     }
 
     /// Hide the drawer window.
     pub fn hide(&mut self) {
+        println!("HIDE");
         self.visible = false;
 
-        // Immediately detach the buffer, hiding the window.
+        // Immediately detach the buffer, unmapping and hiding the window.
         let surface = self.window.wl_surface();
         surface.attach(None, 0, 0);
         surface.commit();
@@ -303,6 +301,7 @@ impl Drawer {
 
     /// Update the window's logical size.
     pub fn set_size(&mut self, size: Size<u32>) {
+        println!("SIZE CHANGE: {:?}", size);
         if self.size == size {
             return;
         }

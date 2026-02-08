@@ -420,10 +420,10 @@ impl SeatHandler for State {
         _seat: WlSeat,
         capability: Capability,
     ) {
-        if capability != Capability::Touch {
-            if let Some(touch) = self.touch.take() {
-                touch.release();
-            }
+        if capability != Capability::Touch
+            && let Some(touch) = self.touch.take()
+        {
+            touch.release();
         }
     }
 
@@ -443,9 +443,7 @@ impl TouchHandler for State {
         position: (f64, f64),
     ) {
         if self.active_touch.is_none() && self.panel.owns_surface(&surface) {
-            let compositor = &self.protocol_states.compositor;
-            let modules = &mut self.modules.as_slice_mut();
-            self.drawer.show(&self.config, compositor, modules, self.drawer_opening);
+            self.drawer.show();
 
             self.last_touch_y = position.1;
             self.touch_start = position;
