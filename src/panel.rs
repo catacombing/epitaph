@@ -17,11 +17,11 @@ use tracing::error;
 
 use crate::config::{Color, Config};
 use crate::geometry::Size;
-use crate::module::{Alignment, Module, PanelModuleContent};
+use crate::module::{Alignment, PanelModuleContent};
 use crate::renderer::{Renderer, SizedRenderer, TextRenderer};
 use crate::text::{GlRasterizer, Svg};
 use crate::vertex::VertexBatcher;
-use crate::{ProtocolStates, Result, State, gl};
+use crate::{Modules, ProtocolStates, Result, State, gl};
 
 /// Panel height in pixels with a scale factor of 1.
 pub const PANEL_HEIGHT: i32 = 20;
@@ -110,7 +110,7 @@ impl Panel {
     }
 
     /// Render the panel.
-    pub fn draw(&mut self, config: &Config, modules: &[&dyn Module]) {
+    pub fn draw(&mut self, config: &Config, modules: &Modules) {
         // Skip drawing initial configure is ready.
         if !self.dirty || self.size == Size::default() {
             self.stalled = true;
@@ -176,13 +176,14 @@ impl Panel {
     /// Render just the panel modules.
     fn draw_modules(
         renderer: &mut SizedRenderer,
-        modules: &[&dyn Module],
+        modules: &Modules,
         size: Size<f32>,
         scale: f64,
     ) -> Result<()> {
         for alignment in [Alignment::Left, Alignment::Center, Alignment::Right] {
             let mut run = PanelRun::new(renderer, size, scale, alignment)?;
             for module in modules
+                .as_vec()
                 .iter()
                 .filter_map(|module| module.panel_module())
                 .filter(|module| module.alignment() == alignment)
@@ -195,12 +196,12 @@ impl Panel {
     }
 
     /// Update current status of the background activity bar.
-    fn update_background_activity(&mut self, config: &Config, modules: &[&dyn Module]) {
+    fn update_background_activity(&mut self, config: &Config, modules: &Modules) {
         // Ensure activite cache has the correct size.
-        self.last_background_activity.resize(modules.len(), 0.);
+        self.last_background_activity.resize(modules.as_vec().len(), 0.);
 
         // Find the first module that changed since the last frame.
-        for (i, module) in modules.iter().enumerate().rev() {
+        for (i, module) in modules.as_vec().iter().enumerate().rev() {
             let module = match module.panel_background_module() {
                 Some(module) => module,
                 None => continue,
@@ -222,7 +223,7 @@ impl Panel {
     ///
     /// This will render a new frame if there currently is no frame request
     /// pending.
-    pub fn unstall(&mut self, config: &Config, modules: &[&dyn Module]) {
+    pub fn unstall(&mut self, config: &Config, modules: &Modules) {
         // Ensure we actually draw even if renderer isn't stalled.
         self.dirty = true;
 

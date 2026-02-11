@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## Unreleased
 
+### Changed
+
+- Initial output scale is retrieved through Catacomb IPC
+
 ### Fixed
 
 - Udev rules for Fairphone 5 brightness control

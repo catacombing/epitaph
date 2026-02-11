@@ -8,10 +8,11 @@ use calloop::ping::{self, Ping};
 use calloop::timer::{TimeoutAction, Timer};
 use calloop::{EventLoop, LoopHandle, RegistrationToken};
 use calloop_wayland_source::WaylandSource;
-use catacomb_ipc::{self, DpmsState, IpcMessage};
+use catacomb_ipc::{self, CliToggle, IpcMessage};
 use configory::{EventHandler as ConfigEventHandler, Manager, Options as ManagerOptions};
 use glutin::display::{Display, DisplayApiPreference};
 use raw_window_handle::{RawDisplayHandle, WaylandDisplayHandle};
+use smallvec::SmallVec;
 use smithay_client_toolkit::compositor::{CompositorHandler, CompositorState};
 use smithay_client_toolkit::output::{OutputHandler, OutputState};
 use smithay_client_toolkit::reexports::client::globals::{self, GlobalList};
@@ -72,6 +73,9 @@ mod gl {
 
 /// Convenience result wrapper.
 pub type Result<T> = StdResult<T, Box<dyn Error>>;
+
+/// Module count; used for smallvec stack storage.
+const MODULE_COUNT: usize = 11;
 
 #[tokio::main]
 async fn main() {
@@ -217,21 +221,19 @@ impl State {
     /// Draw window associated with the surface.
     fn draw(&mut self, surface: &WlSurface) {
         if self.panel.owns_surface(surface) {
-            self.panel.draw(&self.config, &self.modules.as_slice());
+            self.panel.draw(&self.config, &self.modules);
         } else if self.drawer.owns_surface(surface) {
             let compositor = &self.protocol_states.compositor;
-            let modules = &mut self.modules.as_slice_mut();
-            self.drawer.draw(&self.config, compositor, modules, self.drawer_opening);
+            self.drawer.draw(&self.config, compositor, &mut self.modules, self.drawer_opening);
         }
     }
 
     /// Unstall all renderers.
     fn unstall(&mut self) {
         let compositor = &self.protocol_states.compositor;
-        let modules = &mut self.modules.as_slice_mut();
-        self.drawer.unstall(&self.config, compositor, modules, self.drawer_opening);
+        self.drawer.unstall(&self.config, compositor, &mut self.modules, self.drawer_opening);
 
-        self.panel.unstall(&self.config, &self.modules.as_slice());
+        self.panel.unstall(&self.config, &self.modules);
     }
 
     /// Set drawer status without animation.
@@ -240,8 +242,7 @@ impl State {
             // Show drawer on panel single-tap with drawer closed.
             self.drawer.offset = self.drawer.max_offset();
             let compositor = &self.protocol_states.compositor;
-            let modules = &mut self.modules.as_slice_mut();
-            self.drawer.unstall(&self.config, compositor, modules, self.drawer_opening);
+            self.drawer.unstall(&self.config, compositor, &mut self.modules, self.drawer_opening);
         } else {
             // Hide drawer on single-tap of panel or drawer handle.
             self.drawer.offset = 0.;
@@ -324,13 +325,12 @@ impl FractionalScaleHandler for State {
         if self.panel.owns_surface(surface) {
             self.panel.set_scale_factor(factor);
 
-            self.panel.unstall(&self.config, &self.modules.as_slice());
+            self.panel.unstall(&self.config, &self.modules);
         } else if self.drawer.owns_surface(surface) {
             self.drawer.set_scale_factor(factor);
 
             let compositor = &self.protocol_states.compositor;
-            let modules = &mut self.modules.as_slice_mut();
-            self.drawer.unstall(&self.config, compositor, modules, self.drawer_opening);
+            self.drawer.unstall(&self.config, compositor, &mut self.modules, self.drawer_opening);
         }
     }
 }
@@ -382,14 +382,13 @@ impl LayerShellHandler for State {
         if self.panel.owns_surface(surface) {
             self.panel.set_size(&self.protocol_states.compositor, configure.new_size.into());
 
-            self.panel.unstall(&self.config, &self.modules.as_slice());
+            self.panel.unstall(&self.config, &self.modules);
         } else if self.drawer.owns_surface(surface) {
             self.panel_height = Some(configure.new_size.1);
             self.drawer.set_size(configure.new_size.into());
 
             let compositor = &self.protocol_states.compositor;
-            let modules = &mut self.modules.as_slice_mut();
-            self.drawer.unstall(&self.config, compositor, modules, self.drawer_opening);
+            self.drawer.unstall(&self.config, compositor, &mut self.modules, self.drawer_opening);
         }
     }
 }
@@ -450,8 +449,7 @@ impl TouchHandler for State {
             self.active_touch = Some(id);
             self.drawer_opening = true;
         } else if self.drawer.owns_surface(&surface) {
-            let touch_start =
-                self.drawer.touch_down(id, position.into(), &mut self.modules.as_slice_mut());
+            let touch_start = self.drawer.touch_down(id, position.into(), &mut self.modules);
 
             // Check drawer touch status.
             if !touch_start.module_touched {
@@ -492,7 +490,7 @@ impl TouchHandler for State {
 
                     // Turn off display on panel double-tap.
                     if self.touch_start.1 <= PANEL_HEIGHT as f64 {
-                        let msg = IpcMessage::Dpms { state: Some(DpmsState::Off) };
+                        let msg = IpcMessage::Dpms { state: Some(CliToggle::Off) };
                         let _ = catacomb_ipc::send_message(&msg);
                     }
                 } else if self.touch_start.1 <= PANEL_HEIGHT as f64 {
@@ -517,12 +515,16 @@ impl TouchHandler for State {
                 self.drawer.start_animation();
 
                 let compositor = &self.protocol_states.compositor;
-                let modules = &mut self.modules.as_slice_mut();
-                self.drawer.unstall(&self.config, compositor, modules, self.drawer_opening);
+                self.drawer.unstall(
+                    &self.config,
+                    compositor,
+                    &mut self.modules,
+                    self.drawer_opening,
+                );
             }
         // Handle module touch events.
         } else {
-            let dirty = self.drawer.touch_up(id, &mut self.modules.as_slice_mut());
+            let dirty = self.drawer.touch_up(id, &mut self.modules);
             if dirty {
                 self.unstall();
             }
@@ -552,13 +554,11 @@ impl TouchHandler for State {
             self.drawer.offset += delta;
 
             let compositor = &self.protocol_states.compositor;
-            let modules = &mut self.modules.as_slice_mut();
-            self.drawer.unstall(&self.config, compositor, modules, self.drawer_opening);
+            self.drawer.unstall(&self.config, compositor, &mut self.modules, self.drawer_opening);
 
             self.last_touch_y = position.1;
         } else {
-            let dirty =
-                self.drawer.touch_motion(id, position.into(), &mut self.modules.as_slice_mut());
+            let dirty = self.drawer.touch_motion(id, position.into(), &mut self.modules);
 
             if dirty {
                 self.unstall();
@@ -625,18 +625,19 @@ impl ProtocolStates {
 }
 
 /// Panel modules.
-struct Modules {
+pub struct Modules {
     orientation: Orientation,
     brightness: Brightness,
     flashlight: Flashlight,
     cellular: Cellular,
     battery: Battery,
     volume: Volume,
-    scale: Scale,
     clock: Clock,
     wifi: Wifi,
     date: Date,
     gps: Gps,
+
+    scale: Option<Scale>,
 }
 
 impl Modules {
@@ -656,38 +657,46 @@ impl Modules {
         })
     }
 
-    /// Get all modules as sorted immutable slice.
-    fn as_slice(&self) -> [&dyn Module; 11] {
-        [
-            &self.brightness,
-            &self.scale,
-            &self.clock,
-            &self.cellular,
-            &self.wifi,
-            &self.gps,
-            &self.battery,
-            &self.orientation,
-            &self.flashlight,
-            &self.date,
-            &self.volume,
-        ]
+    /// Get modules as an immutable vector.
+    pub fn as_vec(&self) -> SmallVec<[&dyn Module; MODULE_COUNT]> {
+        let mut vec: SmallVec<[&dyn Module; _]> = SmallVec::new();
+        vec.push(&self.brightness);
+        if let Some(scale) = &self.scale {
+            vec.push(scale);
+        }
+        vec.push(&self.clock);
+        vec.push(&self.cellular);
+        vec.push(&self.wifi);
+        vec.push(&self.gps);
+        vec.push(&self.battery);
+        vec.push(&self.orientation);
+        vec.push(&self.flashlight);
+        vec.push(&self.date);
+        vec.push(&self.volume);
+
+        // Ensure module count is up to date.
+        assert!(!vec.spilled());
+
+        vec
     }
 
-    /// Get all modules as sorted mutable slice.
-    fn as_slice_mut(&mut self) -> [&mut dyn Module; 11] {
-        [
-            &mut self.brightness,
-            &mut self.scale,
-            &mut self.clock,
-            &mut self.cellular,
-            &mut self.wifi,
-            &mut self.gps,
-            &mut self.battery,
-            &mut self.orientation,
-            &mut self.flashlight,
-            &mut self.date,
-            &mut self.volume,
-        ]
+    /// Get modules as a mutable vector.
+    pub fn as_vec_mut(&mut self) -> SmallVec<[&mut dyn Module; MODULE_COUNT]> {
+        let mut vec: SmallVec<[&mut dyn Module; _]> = SmallVec::new();
+        vec.push(&mut self.brightness);
+        if let Some(scale) = &mut self.scale {
+            vec.push(scale);
+        }
+        vec.push(&mut self.clock);
+        vec.push(&mut self.cellular);
+        vec.push(&mut self.wifi);
+        vec.push(&mut self.gps);
+        vec.push(&mut self.battery);
+        vec.push(&mut self.orientation);
+        vec.push(&mut self.flashlight);
+        vec.push(&mut self.date);
+        vec.push(&mut self.volume);
+        vec
     }
 }
 

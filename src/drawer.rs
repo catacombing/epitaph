@@ -13,12 +13,12 @@ use smithay_client_toolkit::shell::wlr_layer::{Anchor, Layer, LayerSurface};
 
 use crate::config::Config;
 use crate::geometry::{Position, Size};
-use crate::module::{DrawerModule, Module, Slider, Toggle};
+use crate::module::{DrawerModule, Slider, Toggle};
 use crate::panel::PANEL_HEIGHT;
 use crate::renderer::{RectRenderer, Renderer, SizedRenderer, TextRenderer};
 use crate::text::{GlRasterizer, GlSubTexture, Svg};
 use crate::vertex::{RectVertex, VertexBatcher};
-use crate::{ProtocolStates, Result, State, gl};
+use crate::{Modules, ProtocolStates, Result, State, gl};
 
 /// Height of the handle for single-tap closing the drawer.
 pub const HANDLE_HEIGHT: u32 = 32;
@@ -156,7 +156,7 @@ impl Drawer {
         &mut self,
         config: &Config,
         compositor: &CompositorState,
-        modules: &mut [&mut dyn Module],
+        modules: &mut Modules,
         opening: bool,
     ) {
         // Never attach new buffers while hidden or unconfigured.
@@ -241,7 +241,7 @@ impl Drawer {
 
             // Add modules to rendering batch.
             let mut run = DrawerRun::new(renderer, physical_size.into(), self.scale);
-            for module in modules.iter_mut().filter_map(|module| module.drawer_module()) {
+            for module in modules.as_vec_mut().iter_mut().filter_map(|m| m.drawer_module()) {
                 run.batch(config, module);
             }
 
@@ -277,7 +277,7 @@ impl Drawer {
         &mut self,
         config: &Config,
         compositor: &CompositorState,
-        modules: &mut [&mut dyn Module],
+        modules: &mut Modules,
         opening: bool,
     ) {
         // Ensure we actually draw even if renderer isn't stalled.
@@ -332,7 +332,7 @@ impl Drawer {
         &mut self,
         id: i32,
         position: Position<f64>,
-        modules: &mut [&mut dyn Module],
+        modules: &mut Modules,
     ) -> TouchStart {
         self.touch_position = position * self.scale;
         self.touch_id = Some(id);
@@ -347,6 +347,7 @@ impl Drawer {
         self.touch_module = Some(index);
 
         // Update sliders.
+        let mut modules = modules.as_vec_mut();
         let requires_redraw = match modules[index].drawer_module() {
             Some(DrawerModule::Slider(slider)) => {
                 let _ = slider.set_value(x.clamp(0., 1.));
@@ -363,7 +364,7 @@ impl Drawer {
         &mut self,
         id: i32,
         position: Position<f64>,
-        modules: &mut [&mut dyn Module],
+        modules: &mut Modules,
     ) -> bool {
         if Some(id) != self.touch_id {
             return false;
@@ -373,6 +374,7 @@ impl Drawer {
         // Update slider position.
         let physical_size = self.size * self.scale;
         let positioner = ModulePositioner::new(physical_size.into(), self.scale);
+        let mut modules = modules.as_vec_mut();
         match self.touch_module.and_then(|module| modules[module].drawer_module()) {
             Some(DrawerModule::Slider(slider)) => {
                 let relative_x = self.touch_position.x - positioner.edge_padding as f64;
@@ -387,13 +389,14 @@ impl Drawer {
     }
 
     /// Handle touch release events.
-    pub fn touch_up(&mut self, id: i32, modules: &mut [&mut dyn Module]) -> bool {
+    pub fn touch_up(&mut self, id: i32, modules: &mut Modules) -> bool {
         if Some(id) != self.touch_id {
             return false;
         }
 
         // Handle button toggles on touch up.
         let mut dirty = false;
+        let mut modules = modules.as_vec_mut();
         match self.touch_module.and_then(|module| modules[module].drawer_module()) {
             Some(DrawerModule::Toggle(toggle)) => {
                 let _ = toggle.toggle();
@@ -650,7 +653,7 @@ impl ModulePositioner {
     /// Get relative position inside a module.
     fn module_position(
         &self,
-        modules: &mut [&mut dyn Module],
+        modules: &mut Modules,
         position: Position<f64>,
     ) -> Option<(usize, f64, f64)> {
         let x = position.x as i16;
@@ -658,7 +661,7 @@ impl ModulePositioner {
         let mut start_x = self.edge_padding;
         let mut start_y = self.panel_height + self.edge_padding;
 
-        for (i, module) in modules.iter_mut().enumerate() {
+        for (i, module) in modules.as_vec_mut().iter_mut().enumerate() {
             // Only check drawer modules.
             let module = match module.drawer_module() {
                 Some(module) => module,

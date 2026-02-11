@@ -14,7 +14,7 @@ panic = 'abort'
 [dependencies]
 calloop = { version = "0.14.0", features = ["signals"] }
 calloop-wayland-source = "0.4.0"
-catacomb_ipc = { git = "https://github.com/chrisduerr/catacomb", rev = "88facecf54e0cb45be635db16d0ca00399277b5d" }
+catacomb_ipc = { git = "https://github.com/chrisduerr/catacomb", rev = "eb2ebcfeffae11cb7bce6a25940ad0ef792e0cd2" }
 chrono = { version = "0.4.20", default-features = false, features = ["clock"] }
 configory = "0.6.2"
 crossfont = "0.9.0"
@@ -25,6 +25,7 @@ libpulse-binding = "2.30.1"
 raw-window-handle = "0.6.2"
 resvg = { version = "0.46.0", default-features = false }
 serde = { version = "1.0.219", features = ["derive"] }
+smallvec = "1.15.1"
 smithay-client-toolkit = { version = "0.20.0", default-features = false, features = ["xkbcommon"] }
 tokio = { version = "1.26.0", features = ["macros"] }
 tracing = "0.1.41"
