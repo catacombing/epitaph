@@ -23,17 +23,11 @@ use crate::text::{GlRasterizer, Svg};
 use crate::vertex::VertexBatcher;
 use crate::{Modules, ProtocolStates, Result, State, gl};
 
-/// Panel height in pixels with a scale factor of 1.
-pub const PANEL_HEIGHT: i32 = 20;
-
 /// Panel SVG width.
 const MODULE_WIDTH: u32 = 20;
 
 /// Padding between panel modules.
 const MODULE_PADDING: f64 = 5.;
-
-/// Panel padding to the screen edges.
-const EDGE_PADDING: f64 = 5.;
 
 /// Duration after which background activity will be hidden agani.
 const BACKGROUND_ACTIVITY_TIMEOUT: Duration = Duration::from_millis(1000);
@@ -85,8 +79,8 @@ impl Panel {
             None,
         );
         window.set_anchor(Anchor::LEFT | Anchor::TOP | Anchor::RIGHT);
-        window.set_size(0, PANEL_HEIGHT as u32);
-        window.set_exclusive_zone(PANEL_HEIGHT);
+        window.set_size(0, config.geometry.height);
+        window.set_exclusive_zone(config.geometry.height as i32);
         window.commit();
 
         // Initialize the renderer.
@@ -159,7 +153,7 @@ impl Panel {
             }
 
             if let Err(err) =
-                Self::draw_modules(renderer, modules, physical_size.into(), self.scale)
+                Self::draw_modules(config, renderer, modules, physical_size.into(), self.scale)
             {
                 error!("Failed drawer module rendering: {err}");
             }
@@ -175,13 +169,14 @@ impl Panel {
 
     /// Render just the panel modules.
     fn draw_modules(
+        config: &Config,
         renderer: &mut SizedRenderer,
         modules: &Modules,
         size: Size<f32>,
         scale: f64,
     ) -> Result<()> {
         for alignment in [Alignment::Left, Alignment::Center, Alignment::Right] {
-            let mut run = PanelRun::new(renderer, size, scale, alignment)?;
+            let mut run = PanelRun::new(config, renderer, size, scale, alignment)?;
             for module in modules
                 .as_vec()
                 .iter()
@@ -296,10 +291,12 @@ struct PanelRun<'a> {
     metrics: Metrics,
     size: Size<f32>,
     width: i16,
+    padding: i16,
 }
 
 impl<'a> PanelRun<'a> {
     fn new(
+        config: &Config,
         renderer: &'a mut SizedRenderer,
         size: Size<f32>,
         scale: f64,
@@ -309,6 +306,7 @@ impl<'a> PanelRun<'a> {
             alignment,
             scale,
             size,
+            padding: (config.geometry.padding as f64 * scale).round() as i16,
             metrics: renderer.rasterizer.metrics()?,
             rasterizer: &mut renderer.rasterizer,
             batcher: &mut renderer.text_batcher,
@@ -323,9 +321,9 @@ impl<'a> PanelRun<'a> {
 
         // Determine vertex offset from left screen edge.
         let x_offset = match self.alignment {
-            Alignment::Left => self.edge_padding(),
+            Alignment::Left => self.padding,
             Alignment::Center => (self.size.width as i16 - self.width) / 2,
-            Alignment::Right => self.size.width as i16 - self.width - self.edge_padding(),
+            Alignment::Right => self.size.width as i16 - self.width - self.padding,
         };
 
         // Update vertex position based on text alignment.
@@ -388,10 +386,5 @@ impl<'a> PanelRun<'a> {
     /// Module padding with scale factor applied.
     fn module_padding(&self) -> i16 {
         (MODULE_PADDING * self.scale).round() as i16
-    }
-
-    /// Edge padding with scale factor applied.
-    fn edge_padding(&self) -> i16 {
-        (EDGE_PADDING * self.scale).round() as i16
     }
 }

@@ -14,7 +14,6 @@ use smithay_client_toolkit::shell::wlr_layer::{Anchor, Layer, LayerSurface};
 use crate::config::Config;
 use crate::geometry::{Position, Size};
 use crate::module::{DrawerModule, Slider, Toggle};
-use crate::panel::PANEL_HEIGHT;
 use crate::renderer::{RectRenderer, Renderer, SizedRenderer, TextRenderer};
 use crate::text::{GlRasterizer, GlSubTexture, Svg};
 use crate::vertex::{RectVertex, VertexBatcher};
@@ -198,7 +197,7 @@ impl Drawer {
         // Update the window's opaque region.
         if let Ok(region) = Region::new(compositor) {
             // Calculate vertical opaque region start.
-            let drawer_height = self.size.height as i32 - PANEL_HEIGHT;
+            let drawer_height = self.size.height - config.geometry.height;
             let y = (self.offset - drawer_height as f64).max(0.).round() as i32;
 
             region.add(0, y, self.size.width as i32, self.offset.round() as i32);
@@ -229,7 +228,7 @@ impl Drawer {
             gl::Clear(gl::COLOR_BUFFER_BIT);
 
             // Setup drawer to render at correct offset.
-            let panel_height = (PANEL_HEIGHT as f64 * self.scale).round() as i32;
+            let panel_height = (config.geometry.height as f64 * self.scale).round() as i32;
             gl::Enable(gl::SCISSOR_TEST);
             gl::Scissor(0, y_offset, width, height - panel_height);
             gl::Viewport(0, y_offset, width, height);
@@ -240,7 +239,7 @@ impl Drawer {
             gl::Clear(gl::COLOR_BUFFER_BIT);
 
             // Add modules to rendering batch.
-            let mut run = DrawerRun::new(renderer, physical_size.into(), self.scale);
+            let mut run = DrawerRun::new(config, renderer, physical_size.into(), self.scale);
             for module in modules.as_vec_mut().iter_mut().filter_map(|m| m.drawer_module()) {
                 run.batch(config, module);
             }
@@ -330,6 +329,7 @@ impl Drawer {
     /// Handle touch press events.
     pub fn touch_down(
         &mut self,
+        config: &Config,
         id: i32,
         position: Position<f64>,
         modules: &mut Modules,
@@ -339,7 +339,7 @@ impl Drawer {
 
         // Find touched module.
         let physical_size = self.size * self.scale;
-        let positioner = ModulePositioner::new(physical_size.into(), self.scale);
+        let positioner = ModulePositioner::new(config, physical_size.into(), self.scale);
         let (index, x) = match positioner.module_position(modules, self.touch_position) {
             Some((index, x, _)) => (index, x),
             None => return TouchStart { requires_redraw: false, module_touched: false },
@@ -362,6 +362,7 @@ impl Drawer {
     /// Handle touch motion events.
     pub fn touch_motion(
         &mut self,
+        config: &Config,
         id: i32,
         position: Position<f64>,
         modules: &mut Modules,
@@ -373,7 +374,7 @@ impl Drawer {
 
         // Update slider position.
         let physical_size = self.size * self.scale;
-        let positioner = ModulePositioner::new(physical_size.into(), self.scale);
+        let positioner = ModulePositioner::new(config, physical_size.into(), self.scale);
         let mut modules = modules.as_vec_mut();
         match self.touch_module.and_then(|module| modules[module].drawer_module()) {
             Some(DrawerModule::Slider(slider)) => {
@@ -481,9 +482,9 @@ struct DrawerRun<'a> {
 }
 
 impl<'a> DrawerRun<'a> {
-    fn new(renderer: &'a mut SizedRenderer, size: Size<f32>, scale: f64) -> Self {
+    fn new(config: &Config, renderer: &'a mut SizedRenderer, size: Size<f32>, scale: f64) -> Self {
         Self {
-            positioner: ModulePositioner::new(size, scale),
+            positioner: ModulePositioner::new(config, size, scale),
             rasterizer: &mut renderer.rasterizer,
             text_batcher: &mut renderer.text_batcher,
             rect_batcher: &mut renderer.rect_batcher,
@@ -620,11 +621,11 @@ struct ModulePositioner {
 }
 
 impl ModulePositioner {
-    pub fn new(size: Size<f32>, scale_factor: f64) -> Self {
+    pub fn new(config: &Config, size: Size<f32>, scale_factor: f64) -> Self {
         let size = Size::new(size.width as i16, size.height as i16);
 
         // Scale constants by DPI scale factor.
-        let panel_height = (PANEL_HEIGHT as f64 * scale_factor).round() as i16;
+        let panel_height = (config.geometry.height as f64 * scale_factor).round() as i16;
         let module_size = (MODULE_SIZE as f64 * scale_factor).round() as i16;
         let module_padding = (MODULE_PADDING * scale_factor).round() as i16;
         let slider_height = (SLIDER_HEIGHT * scale_factor).round() as i16;

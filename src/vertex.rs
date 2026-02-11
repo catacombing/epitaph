@@ -249,6 +249,10 @@ pub fn sort_multiple<T, U>(v1: &mut [T], v2: &mut [U])
 where
     T: Ord,
 {
+    if v1.is_empty() {
+        return;
+    }
+
     let len = v1.len();
     for i in (0..len - 1).rev() {
         if v1[i] <= v1[i + 1] {

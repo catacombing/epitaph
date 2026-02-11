@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## Unreleased
 
+### Added
+
+- Config fields to define panel module order and panel height
+
 ### Changed
 
 - Initial output scale is retrieved through Catacomb IPC

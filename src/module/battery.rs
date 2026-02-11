@@ -8,6 +8,7 @@ use calloop::timer::{TimeoutAction, Timer};
 use calloop::{Interest, LoopHandle, Mode, PostAction};
 use udev::{Enumerator, MonitorBuilder};
 
+use crate::config::ConfigPanelModule;
 use crate::module::{Alignment, Module, PanelModule, PanelModuleContent};
 use crate::text::Svg;
 use crate::{Result, State};
@@ -16,12 +17,13 @@ use crate::{Result, State};
 const UPDATE_INTERVAL: Duration = Duration::from_secs(60);
 
 pub struct Battery {
+    alignment: Alignment,
     charging: bool,
     capacity: u8,
 }
 
 impl Battery {
-    pub fn new(event_loop: &LoopHandle<'static, State>) -> Result<Self> {
+    pub fn new(event_loop: &LoopHandle<'static, State>, alignment: Alignment) -> Result<Self> {
         // Create Udev device enumerator.
         let mut socket_enumerator = Enumerator::new()?;
         socket_enumerator.match_subsystem("power_supply")?;
@@ -51,7 +53,7 @@ impl Battery {
             TimeoutAction::ToInstant(now + UPDATE_INTERVAL)
         })?;
 
-        Ok(Self { charging: false, capacity: 100 })
+        Ok(Self { alignment, charging: false, capacity: 100 })
     }
 
     /// Update battery status from udev attributes.
@@ -74,9 +76,11 @@ impl Battery {
         });
 
         // Update charging status.
-        if let Some((new_capacity, new_charging)) = battery {
-            state.modules.battery.capacity = new_capacity;
-            state.modules.battery.charging = new_charging;
+        if let Some(((new_capacity, new_charging), battery)) =
+            battery.zip(state.modules.battery.as_mut())
+        {
+            battery.capacity = new_capacity;
+            battery.charging = new_charging;
         }
     }
 }
@@ -89,7 +93,7 @@ impl Module for Battery {
 
 impl PanelModule for Battery {
     fn alignment(&self) -> Alignment {
-        Alignment::Right
+        self.alignment
     }
 
     fn content(&self) -> PanelModuleContent {
@@ -105,5 +109,9 @@ impl PanelModule for Battery {
             (false, 20..=39) => Svg::Battery40,
             (false, 0..=19) => Svg::Battery20,
         })
+    }
+
+    fn config_variant(&self) -> ConfigPanelModule {
+        ConfigPanelModule::Battery
     }
 }

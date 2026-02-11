@@ -35,3 +35,13 @@ at <br> `${XDG_CONFIG_HOME:-$HOME/.config}/epitaph/epitaph.toml`.
 |-|-|-|-|
 |max_tap_distance|Square of the maximum distance before touch input is considered a drag|float|`400.0`|
 |multi_tap_interval|Maximum time between taps to be considered a double-tap|integer (milliseconds)|`750`|
+
+### geometry
+
+|Name|Description|Type|Default|
+|-|-|-|-|
+|height|Height of the panel in pixels at scale 1|integer|`20`|
+|padding|Panel padding at the screen corners|integer|`5`|
+|left|Left-aligned panel modules|["Cellular" | "Battery" | "Clock" | "Wifi" | "Date"]|`[Date]`|
+|center|Center-aligned panel modules|["Cellular" | "Battery" | "Clock" | "Wifi" | "Date"]|`[Clock]`|
+|right|Right-aligned panel modules|["Cellular" | "Battery" | "Clock" | "Wifi" | "Date"]|`[Cellular, Wifi, Battery]`|

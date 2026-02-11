@@ -2,14 +2,16 @@
 
 use chrono::offset::Local;
 
-use crate::Result;
+use crate::config::ConfigPanelModule;
 use crate::module::{Alignment, Module, PanelModule, PanelModuleContent};
 
-pub struct Date;
+pub struct Date {
+    alignment: Alignment,
+}
 
 impl Date {
-    pub fn new() -> Result<Self> {
-        Ok(Self)
+    pub fn new(alignment: Alignment) -> Self {
+        Self { alignment }
     }
 }
 
@@ -21,10 +23,14 @@ impl Module for Date {
 
 impl PanelModule for Date {
     fn alignment(&self) -> Alignment {
-        Alignment::Left
+        self.alignment
     }
 
     fn content(&self) -> PanelModuleContent {
         PanelModuleContent::Text(Local::now().format("%a. %-d").to_string())
+    }
+
+    fn config_variant(&self) -> ConfigPanelModule {
+        ConfigPanelModule::Date
     }
 }

@@ -3,6 +3,7 @@
 use calloop::LoopHandle;
 use calloop::channel::Event;
 
+use crate::config::ConfigPanelModule;
 use crate::dbus::network_manager::{self, WifiConnection};
 use crate::module::{Alignment, DrawerModule, Module, PanelModule, PanelModuleContent, Toggle};
 use crate::text::Svg;
@@ -15,10 +16,12 @@ pub struct Wifi {
 
     /// Desired connectivity state.
     desired_enabled: bool,
+
+    alignment: Alignment,
 }
 
 impl Wifi {
-    pub fn new(event_loop: &LoopHandle<'static, State>) -> Result<Self> {
+    pub fn new(event_loop: &LoopHandle<'static, State>, alignment: Alignment) -> Result<Self> {
         // Subscribe to NetworkManager DBus events.
         let rx = network_manager::wifi_listener();
         event_loop.insert_source(rx, move |event, _, state| {
@@ -28,10 +31,10 @@ impl Wifi {
             };
 
             // Ignore updates that change nothing.
-            let module = &mut state.modules.wifi;
-            if connection == module.connection {
-                return;
-            }
+            let module = match state.modules.wifi.as_mut() {
+                Some(module) if connection != module.connection => module,
+                _ => return,
+            };
 
             let old_enabled = module.desired_enabled;
             let old_svg = module.svg();
@@ -41,12 +44,12 @@ impl Wifi {
             module.connection = connection;
 
             // Request redraw only if SVG changed.
-            if old_svg != state.modules.wifi.svg() || old_enabled != connection.enabled {
+            if old_svg != module.svg() || old_enabled != connection.enabled {
                 state.unstall();
             }
         })?;
 
-        Ok(Self { connection: WifiConnection::default(), desired_enabled: false })
+        Ok(Self { alignment, connection: WifiConnection::default(), desired_enabled: false })
     }
 }
 
@@ -62,11 +65,15 @@ impl Module for Wifi {
 
 impl PanelModule for Wifi {
     fn alignment(&self) -> Alignment {
-        Alignment::Right
+        self.alignment
     }
 
     fn content(&self) -> PanelModuleContent {
         PanelModuleContent::Svg(self.svg())
+    }
+
+    fn config_variant(&self) -> ConfigPanelModule {
+        ConfigPanelModule::Wifi
     }
 }
 

@@ -27,6 +27,7 @@ pub struct Config {
     pub font: Font,
     pub colors: Colors,
     pub input: Input,
+    pub geometry: Geometry,
 }
 
 /// Font configuration.
@@ -94,6 +95,50 @@ impl Default for Input {
     fn default() -> Self {
         Self { multi_tap_interval: Duration::from_millis(200).into(), max_tap_distance: 400. }
     }
+}
+
+/// Panel geometry.
+#[derive(Docgen, Deserialize, Debug)]
+#[serde(default, deny_unknown_fields)]
+pub struct Geometry {
+    /// Height of the panel in pixels at scale 1.
+    pub height: u32,
+    /// Panel padding at the screen corners.
+    pub padding: u32,
+
+    /// Left-aligned panel modules.
+    pub left: Vec<ConfigPanelModule>,
+    /// Center-aligned panel modules.
+    pub center: Vec<ConfigPanelModule>,
+    /// Right-aligned panel modules.
+    pub right: Vec<ConfigPanelModule>,
+}
+
+impl Default for Geometry {
+    fn default() -> Self {
+        Self {
+            height: 20,
+            padding: 5,
+            left: vec![ConfigPanelModule::Date],
+            center: vec![ConfigPanelModule::Clock],
+            right: vec![
+                ConfigPanelModule::Cellular,
+                ConfigPanelModule::Wifi,
+                ConfigPanelModule::Battery,
+            ],
+        }
+    }
+}
+
+/// Panel modules.
+#[derive(Docgen, Deserialize, PartialEq, Eq, Copy, Clone, Debug)]
+#[docgen(doc_type = "\"Cellular\" | \"Battery\" | \"Clock\" | \"Wifi\" | \"Date\"")]
+pub enum ConfigPanelModule {
+    Cellular,
+    Battery,
+    Clock,
+    Wifi,
+    Date,
 }
 
 /// RGB color.

@@ -228,9 +228,9 @@ dependencies = [
 
 [[package]]
 name = "configory"
-version = "0.6.2"
+version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "617d9350a98f156791d1f6e25aceeba5ae45418f22d553429248eaeb6b97b264"
+checksum = "3e6fcac4f56315b85669946f05340c60f1b67f9f6c7ab8d1742fa18996a5e9a2"
 dependencies = [
  "configory_derive",
  "dirs",

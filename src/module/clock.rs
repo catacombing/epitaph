@@ -6,13 +6,16 @@ use calloop::LoopHandle;
 use calloop::timer::{TimeoutAction, Timer};
 use chrono::offset::Local;
 
+use crate::config::ConfigPanelModule;
 use crate::module::{Alignment, Module, PanelModule, PanelModuleContent};
 use crate::{Result, State};
 
-pub struct Clock;
+pub struct Clock {
+    alignment: Alignment,
+}
 
 impl Clock {
-    pub fn new(event_loop: &LoopHandle<'static, State>) -> Result<Self> {
+    pub fn new(event_loop: &LoopHandle<'static, State>, alignment: Alignment) -> Result<Self> {
         event_loop.insert_source(Timer::immediate(), move |now, _, state| {
             state.unstall();
 
@@ -23,7 +26,7 @@ impl Clock {
             TimeoutAction::ToInstant(now + remaining)
         })?;
 
-        Ok(Self)
+        Ok(Self { alignment })
     }
 }
 
@@ -35,10 +38,14 @@ impl Module for Clock {
 
 impl PanelModule for Clock {
     fn alignment(&self) -> Alignment {
-        Alignment::Center
+        self.alignment
     }
 
     fn content(&self) -> PanelModuleContent {
         PanelModuleContent::Text(Local::now().format("%H:%M").to_string())
+    }
+
+    fn config_variant(&self) -> ConfigPanelModule {
+        ConfigPanelModule::Clock
     }
 }

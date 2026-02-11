@@ -1,7 +1,7 @@
 //! Panel modules.
 
 use crate::Result;
-use crate::config::{Color, Config};
+use crate::config::{Color, Config, ConfigPanelModule};
 use crate::text::Svg;
 
 pub mod battery;
@@ -35,7 +35,7 @@ pub trait Module {
 }
 
 /// Module alignment.
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Alignment {
     Left,
     Center,
@@ -49,6 +49,9 @@ pub trait PanelModule {
 
     /// Renderable panel content.
     fn content(&self) -> PanelModuleContent;
+
+    /// Get the corresponding config enum variant.
+    fn config_variant(&self) -> ConfigPanelModule;
 }
 
 /// Panel module renderable.

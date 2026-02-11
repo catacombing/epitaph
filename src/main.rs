@@ -35,9 +35,8 @@ use smithay_client_toolkit::{
 use tracing::{error, info};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
-use crate::config::Config;
+use crate::config::{Config, ConfigPanelModule};
 use crate::drawer::{Drawer, HANDLE_HEIGHT};
-use crate::module::Module;
 use crate::module::battery::Battery;
 use crate::module::brightness::Brightness;
 use crate::module::cellular::Cellular;
@@ -49,7 +48,8 @@ use crate::module::orientation::Orientation;
 use crate::module::scale::Scale;
 use crate::module::volume::Volume;
 use crate::module::wifi::Wifi;
-use crate::panel::{PANEL_HEIGHT, Panel};
+use crate::module::{Alignment, Module};
+use crate::panel::Panel;
 use crate::protocols::fractional_scale::{FractionalScaleHandler, FractionalScaleManager};
 use crate::protocols::viewporter::Viewporter;
 use crate::reaper::Reaper;
@@ -168,7 +168,8 @@ impl State {
         let protocol_states = ProtocolStates::new(globals, &queue_handle);
 
         // Initialize panel modules.
-        let modules = Modules::new(&event_loop)?;
+        let config = load_config(&config_manager).unwrap_or_default();
+        let modules = Modules::new(&config, &event_loop)?;
 
         // Create process reaper.
         let reaper = Reaper::new(&event_loop)?;
@@ -180,7 +181,6 @@ impl State {
         let egl_display = unsafe { Display::new(raw_display, DisplayApiPreference::Egl)? };
 
         // Setup windows.
-        let config = load_config(&config_manager).unwrap_or_default();
         let panel = Panel::new(
             &config,
             queue.handle(),
@@ -449,7 +449,8 @@ impl TouchHandler for State {
             self.active_touch = Some(id);
             self.drawer_opening = true;
         } else if self.drawer.owns_surface(&surface) {
-            let touch_start = self.drawer.touch_down(id, position.into(), &mut self.modules);
+            let touch_start =
+                self.drawer.touch_down(&self.config, id, position.into(), &mut self.modules);
 
             // Check drawer touch status.
             if !touch_start.module_touched {
@@ -489,11 +490,11 @@ impl TouchHandler for State {
                     }
 
                     // Turn off display on panel double-tap.
-                    if self.touch_start.1 <= PANEL_HEIGHT as f64 {
+                    if self.touch_start.1 <= self.config.geometry.height as f64 {
                         let msg = IpcMessage::Dpms { state: Some(CliToggle::Off) };
                         let _ = catacomb_ipc::send_message(&msg);
                     }
-                } else if self.touch_start.1 <= PANEL_HEIGHT as f64 {
+                } else if self.touch_start.1 <= self.config.geometry.height as f64 {
                     // Stage delayed single-tap for taps on the top panel.
                     let drawer_opening = self.drawer_opening;
                     let timer = Timer::from_duration(multi_tap_interval);
@@ -558,7 +559,8 @@ impl TouchHandler for State {
 
             self.last_touch_y = position.1;
         } else {
-            let dirty = self.drawer.touch_motion(id, position.into(), &mut self.modules);
+            let dirty =
+                self.drawer.touch_motion(&self.config, id, position.into(), &mut self.modules);
 
             if dirty {
                 self.unstall();
@@ -629,50 +631,118 @@ pub struct Modules {
     orientation: Orientation,
     brightness: Brightness,
     flashlight: Flashlight,
-    cellular: Cellular,
-    battery: Battery,
     volume: Volume,
-    clock: Clock,
-    wifi: Wifi,
-    date: Date,
     gps: Gps,
+
+    panel_order: Vec<ConfigPanelModule>,
+    cellular: Option<Cellular>,
+    battery: Option<Battery>,
+    clock: Option<Clock>,
+    date: Option<Date>,
+    wifi: Option<Wifi>,
 
     scale: Option<Scale>,
 }
 
 impl Modules {
-    fn new(event_loop: &LoopHandle<'static, State>) -> Result<Self> {
+    fn new(config: &Config, event_loop: &LoopHandle<'static, State>) -> Result<Self> {
+        // Initialize panel modules with their corresponding alignment.
+
+        let mut panel_order = Vec::new();
+        let mut cellular = None;
+        let mut battery = None;
+        let mut clock = None;
+        let mut date = None;
+        let mut wifi = None;
+
+        let mut assign_module = |config_modules: &[ConfigPanelModule], alignment| -> Result<()> {
+            for module in config_modules {
+                match module {
+                    ConfigPanelModule::Cellular if cellular.is_none() => {
+                        cellular = Some(Cellular::new(event_loop, alignment)?)
+                    },
+                    ConfigPanelModule::Battery if battery.is_none() => {
+                        battery = Some(Battery::new(event_loop, alignment)?)
+                    },
+                    ConfigPanelModule::Clock if clock.is_none() => {
+                        clock = Some(Clock::new(event_loop, alignment)?)
+                    },
+                    ConfigPanelModule::Wifi if wifi.is_none() => {
+                        wifi = Some(Wifi::new(event_loop, alignment)?)
+                    },
+                    ConfigPanelModule::Date if date.is_none() => date = Some(Date::new(alignment)),
+                    _ => (),
+                }
+                panel_order.push(*module);
+            }
+            Ok(())
+        };
+
+        assign_module(&config.geometry.left, Alignment::Left)?;
+        assign_module(&config.geometry.center, Alignment::Center)?;
+        assign_module(&config.geometry.right, Alignment::Right)?;
+
         Ok(Self {
+            panel_order,
+            cellular,
+            battery,
+            clock,
+            wifi,
+            date,
             orientation: Orientation::new(),
             brightness: Brightness::new()?,
             flashlight: Flashlight::new(),
-            cellular: Cellular::new(event_loop)?,
-            battery: Battery::new(event_loop)?,
             volume: Volume::new(event_loop)?,
-            clock: Clock::new(event_loop)?,
-            wifi: Wifi::new(event_loop)?,
             gps: Gps::new(event_loop)?,
             scale: Scale::new(),
-            date: Date::new()?,
         })
     }
 
     /// Get modules as an immutable vector.
     pub fn as_vec(&self) -> SmallVec<[&dyn Module; MODULE_COUNT]> {
         let mut vec: SmallVec<[&dyn Module; _]> = SmallVec::new();
+
+        vec.push(&self.volume);
+
+        // Add drawer sliders at the top.
         vec.push(&self.brightness);
         if let Some(scale) = &self.scale {
             vec.push(scale);
         }
-        vec.push(&self.clock);
-        vec.push(&self.cellular);
-        vec.push(&self.wifi);
+
+        // Insert panel modules using an intermediate array for sorting.
+
+        let mut panel_modules: SmallVec<[&dyn Module; MODULE_COUNT]> = SmallVec::new();
+        if let Some(clock) = &self.clock {
+            panel_modules.push(clock);
+        }
+        if let Some(cellular) = &self.cellular {
+            panel_modules.push(cellular);
+        }
+        if let Some(wifi) = &self.wifi {
+            panel_modules.push(wifi);
+        }
+        if let Some(battery) = &self.battery {
+            panel_modules.push(battery);
+        }
+        if let Some(date) = &self.date {
+            panel_modules.push(date);
+        }
+
+        panel_modules.sort_by_cached_key(|module| {
+            module.panel_module().and_then(|module| {
+                self.panel_order.iter().position(|variant| *variant == module.config_variant())
+            })
+        });
+
+        for module in panel_modules {
+            vec.push(module);
+        }
+
+        // Add drawer buttons.
         vec.push(&self.gps);
-        vec.push(&self.battery);
         vec.push(&self.orientation);
         vec.push(&self.flashlight);
-        vec.push(&self.date);
-        vec.push(&self.volume);
 
         // Ensure module count is up to date.
         assert!(!vec.spilled());
@@ -683,19 +753,49 @@ impl Modules {
     /// Get modules as a mutable vector.
     pub fn as_vec_mut(&mut self) -> SmallVec<[&mut dyn Module; MODULE_COUNT]> {
         let mut vec: SmallVec<[&mut dyn Module; _]> = SmallVec::new();
+
+        vec.push(&mut self.volume);
+
+        // Add drawer sliders at the top.
         vec.push(&mut self.brightness);
         if let Some(scale) = &mut self.scale {
             vec.push(scale);
         }
-        vec.push(&mut self.clock);
-        vec.push(&mut self.cellular);
-        vec.push(&mut self.wifi);
+
+        // Insert panel modules using an intermediate array for sorting.
+
+        let mut panel_modules: SmallVec<[&mut dyn Module; MODULE_COUNT]> = SmallVec::new();
+        if let Some(clock) = &mut self.clock {
+            panel_modules.push(clock);
+        }
+        if let Some(cellular) = &mut self.cellular {
+            panel_modules.push(cellular);
+        }
+        if let Some(wifi) = &mut self.wifi {
+            panel_modules.push(wifi);
+        }
+        if let Some(battery) = &mut self.battery {
+            panel_modules.push(battery);
+        }
+        if let Some(date) = &mut self.date {
+            panel_modules.push(date);
+        }
+
+        panel_modules.sort_by_cached_key(|module| {
+            module.panel_module().and_then(|module| {
+                self.panel_order.iter().position(|variant| *variant == module.config_variant())
+            })
+        });
+
+        for module in panel_modules {
+            vec.push(module);
+        }
+
+        // Add drawer buttons.
         vec.push(&mut self.gps);
-        vec.push(&mut self.battery);
         vec.push(&mut self.orientation);
         vec.push(&mut self.flashlight);
-        vec.push(&mut self.date);
-        vec.push(&mut self.volume);
+
         vec
     }
 }
