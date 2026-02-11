@@ -481,7 +481,7 @@ impl TouchHandler for State {
 
             // Handle short taps.
             if !self.drawer.offsetting {
-                let multi_tap_interval = self.config.input.multi_tap_interval;
+                let multi_tap_interval = *self.config.input.multi_tap_interval;
                 if last_tap.is_some_and(|tap| tap.elapsed() <= multi_tap_interval) {
                     // Remove delayed single-tap callback.
                     if let Some(source) = self.tap_timeout.take() {

@@ -232,13 +232,26 @@ version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "617d9350a98f156791d1f6e25aceeba5ae45418f22d553429248eaeb6b97b264"
 dependencies = [
+ "configory_derive",
  "dirs",
+ "log",
  "notify",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror",
  "toml",
+]
+
+[[package]]
+name = "configory_derive"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f81505e79b358115ada50fa8bcfb981a0f61c0b37c5c442ace16c9dd0b06f81"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

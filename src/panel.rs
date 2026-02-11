@@ -136,7 +136,7 @@ impl Panel {
             renderer.rasterizer.set_scale_factor(self.scale);
 
             // Always draw default background.
-            let [r, g, b] = config.colors.bg.as_f32();
+            let [r, g, b] = config.colors.background.as_f32();
             unsafe {
                 gl::ClearColor(r, g, b, 1.);
                 gl::Clear(gl::COLOR_BUFFER_BIT);

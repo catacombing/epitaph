@@ -1,12 +1,27 @@
 //! Configuration options.
 
-use std::fmt::{self, Formatter};
+use std::fmt::{self, Display, Formatter};
+use std::ops::Deref;
 use std::time::Duration;
 
+use configory::docgen::{DocType, Docgen, Leaf};
 use serde::de::Visitor;
 use serde::{Deserialize, Deserializer};
 
-#[derive(Deserialize, Default, Debug)]
+/// # Epitaph
+///
+/// ## Syntax
+///
+/// Epitaph's configuration file uses the TOML format. The format's
+/// specification can be found at _<https://toml.io/en/v1.0.0>_.
+///
+/// ## Location
+///
+/// Epitaph doesn't create the configuration file for you, but it looks for one
+/// at <br> `${XDG_CONFIG_HOME:-$HOME/.config}/epitaph/epitaph.toml`.
+///
+/// ## Fields
+#[derive(Docgen, Deserialize, Default, Debug)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub font: Font,
@@ -15,7 +30,7 @@ pub struct Config {
 }
 
 /// Font configuration.
-#[derive(Deserialize, Debug)]
+#[derive(Docgen, Deserialize, Debug)]
 #[serde(default, deny_unknown_fields)]
 pub struct Font {
     /// Font family.
@@ -31,11 +46,12 @@ impl Default for Font {
 }
 
 /// Color configuration.
-#[derive(Deserialize, Debug)]
+#[derive(Docgen, Deserialize, Debug)]
 #[serde(default, deny_unknown_fields)]
 pub struct Colors {
     /// Background color.
-    pub bg: Color,
+    #[serde(alias = "bg")]
+    pub background: Color,
 
     // Active module background.
     pub module_active: Color,
@@ -51,7 +67,7 @@ pub struct Colors {
 impl Default for Colors {
     fn default() -> Self {
         Self {
-            bg: Color::new(24, 24, 24),
+            background: Color::new(24, 24, 24),
 
             module_active: Color::new(85, 85, 85),
             module_inactive: Color::new(51, 51, 51),
@@ -63,20 +79,20 @@ impl Default for Colors {
 }
 
 /// Input configuration.
-#[derive(Deserialize, Debug)]
+#[derive(Docgen, Deserialize, Debug)]
 #[serde(default, deny_unknown_fields)]
 pub struct Input {
     /// Square of the maximum distance before touch input is considered a drag.
     pub max_tap_distance: f64,
 
     /// Maximum time between taps to be considered a double-tap.
-    #[serde(deserialize_with = "duration_ms")]
-    pub multi_tap_interval: Duration,
+    #[docgen(doc_type = "integer (milliseconds)", default = "750")]
+    pub multi_tap_interval: MillisDuration,
 }
 
 impl Default for Input {
     fn default() -> Self {
-        Self { multi_tap_interval: Duration::from_millis(200), max_tap_distance: 400. }
+        Self { multi_tap_interval: Duration::from_millis(200).into(), max_tap_distance: 400. }
     }
 }
 
@@ -99,6 +115,16 @@ impl Color {
 
     pub const fn as_f32(&self) -> [f32; 3] {
         [self.r as f32 / 255., self.g as f32 / 255., self.b as f32 / 255.]
+    }
+}
+
+impl Docgen for Color {
+    fn doc_type() -> DocType {
+        DocType::Leaf(Leaf::new("color"))
+    }
+
+    fn format(&self) -> String {
+        format!("\"#{:0>2x}{:0>2x}{:0>2x}\"", self.r, self.g, self.b)
     }
 }
 
@@ -153,11 +179,59 @@ impl<'de> Deserialize<'de> for Color {
     }
 }
 
-/// Deserialize rgb color from a hex string.
-fn duration_ms<'de, D>(deserializer: D) -> Result<Duration, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let ms = u64::deserialize(deserializer)?;
-    Ok(Duration::from_millis(ms))
+/// Config wrapper for millisecond-precision durations.
+#[derive(Copy, Clone, Hash, PartialEq, Eq, Debug)]
+pub struct MillisDuration(Duration);
+
+impl Deref for MillisDuration {
+    type Target = Duration;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for MillisDuration {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let ms = u64::deserialize(deserializer)?;
+        Ok(Duration::from_millis(ms).into())
+    }
+}
+
+impl From<Duration> for MillisDuration {
+    fn from(duration: Duration) -> Self {
+        Self(duration)
+    }
+}
+
+impl Display for MillisDuration {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{}", self.0.as_millis())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use configory::docgen::markdown::Markdown;
+
+    use super::*;
+
+    #[test]
+    fn config_docs() {
+        let mut formatter = Markdown::new();
+        formatter.set_heading_size(3);
+        let expected = formatter.format::<Config>();
+
+        // Uncomment to update config documentation.
+        // fs::write("./docs/config.md", &expected).unwrap();
+
+        // Ensure documentation is up to date.
+        let docs = fs::read_to_string("./docs/config.md").unwrap();
+        assert_eq!(docs, expected);
+    }
 }

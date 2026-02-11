@@ -235,7 +235,7 @@ impl Drawer {
             gl::Viewport(0, y_offset, width, height);
 
             // Draw background for the offset viewport.
-            let [r, g, b] = config.colors.bg.as_f32();
+            let [r, g, b] = config.colors.background.as_f32();
             gl::ClearColor(r, g, b, 1.);
             gl::Clear(gl::COLOR_BUFFER_BIT);
 
