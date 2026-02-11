@@ -7,11 +7,12 @@ use crate::module::{Alignment, Module, PanelModule, PanelModuleContent};
 
 pub struct Date {
     alignment: Alignment,
+    format: String,
 }
 
 impl Date {
-    pub fn new(alignment: Alignment) -> Self {
-        Self { alignment }
+    pub fn new(alignment: Alignment, format: String) -> Self {
+        Self { alignment, format }
     }
 }
 
@@ -27,7 +28,7 @@ impl PanelModule for Date {
     }
 
     fn content(&self) -> PanelModuleContent {
-        PanelModuleContent::Text(Local::now().format("%a. %-d").to_string())
+        PanelModuleContent::Text(Local::now().format(&self.format).to_string())
     }
 
     fn config_variant(&self) -> ConfigPanelModule {

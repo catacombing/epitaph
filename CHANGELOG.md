@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Added
 
 - Config fields to define panel module order and panel height
+- Config option for custom date and clock module formats
 
 ### Changed
 

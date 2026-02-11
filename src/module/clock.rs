@@ -12,10 +12,15 @@ use crate::{Result, State};
 
 pub struct Clock {
     alignment: Alignment,
+    format: String,
 }
 
 impl Clock {
-    pub fn new(event_loop: &LoopHandle<'static, State>, alignment: Alignment) -> Result<Self> {
+    pub fn new(
+        event_loop: &LoopHandle<'static, State>,
+        alignment: Alignment,
+        format: String,
+    ) -> Result<Self> {
         event_loop.insert_source(Timer::immediate(), move |now, _, state| {
             state.unstall();
 
@@ -26,7 +31,7 @@ impl Clock {
             TimeoutAction::ToInstant(now + remaining)
         })?;
 
-        Ok(Self { alignment })
+        Ok(Self { alignment, format })
     }
 }
 
@@ -42,7 +47,7 @@ impl PanelModule for Clock {
     }
 
     fn content(&self) -> PanelModuleContent {
-        PanelModuleContent::Text(Local::now().format("%H:%M").to_string())
+        PanelModuleContent::Text(Local::now().format(&self.format).to_string())
     }
 
     fn config_variant(&self) -> ConfigPanelModule {

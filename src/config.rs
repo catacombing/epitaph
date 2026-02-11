@@ -28,6 +28,7 @@ pub struct Config {
     pub colors: Colors,
     pub input: Input,
     pub geometry: Geometry,
+    pub modules: Modules,
 }
 
 /// Font configuration.
@@ -105,20 +106,34 @@ pub struct Geometry {
     pub height: u32,
     /// Panel padding at the screen corners.
     pub padding: u32,
+}
 
+impl Default for Geometry {
+    fn default() -> Self {
+        Self { height: 20, padding: 5 }
+    }
+}
+
+/// Panel modules.
+#[derive(Docgen, Deserialize, Debug)]
+#[serde(default, deny_unknown_fields)]
+pub struct Modules {
     /// Left-aligned panel modules.
     pub left: Vec<ConfigPanelModule>,
     /// Center-aligned panel modules.
     pub center: Vec<ConfigPanelModule>,
     /// Right-aligned panel modules.
     pub right: Vec<ConfigPanelModule>,
+
+    /// Format for the clock module.
+    pub clock_format: String,
+    /// Format for the date module.
+    pub date_format: String,
 }
 
-impl Default for Geometry {
+impl Default for Modules {
     fn default() -> Self {
         Self {
-            height: 20,
-            padding: 5,
             left: vec![ConfigPanelModule::Date],
             center: vec![ConfigPanelModule::Clock],
             right: vec![
@@ -126,6 +141,8 @@ impl Default for Geometry {
                 ConfigPanelModule::Wifi,
                 ConfigPanelModule::Battery,
             ],
+            date_format: "%a. %-d".into(),
+            clock_format: "%H:%M".into(),
         }
     }
 }

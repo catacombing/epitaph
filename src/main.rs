@@ -665,12 +665,16 @@ impl Modules {
                         battery = Some(Battery::new(event_loop, alignment)?)
                     },
                     ConfigPanelModule::Clock if clock.is_none() => {
-                        clock = Some(Clock::new(event_loop, alignment)?)
+                        let clock_format = config.modules.clock_format.clone();
+                        clock = Some(Clock::new(event_loop, alignment, clock_format)?)
+                    },
+                    ConfigPanelModule::Date if date.is_none() => {
+                        let date_format = config.modules.date_format.clone();
+                        date = Some(Date::new(alignment, date_format))
                     },
                     ConfigPanelModule::Wifi if wifi.is_none() => {
                         wifi = Some(Wifi::new(event_loop, alignment)?)
                     },
-                    ConfigPanelModule::Date if date.is_none() => date = Some(Date::new(alignment)),
                     _ => (),
                 }
                 panel_order.push(*module);
@@ -678,9 +682,9 @@ impl Modules {
             Ok(())
         };
 
-        assign_module(&config.geometry.left, Alignment::Left)?;
-        assign_module(&config.geometry.center, Alignment::Center)?;
-        assign_module(&config.geometry.right, Alignment::Right)?;
+        assign_module(&config.modules.left, Alignment::Left)?;
+        assign_module(&config.modules.center, Alignment::Center)?;
+        assign_module(&config.modules.right, Alignment::Right)?;
 
         Ok(Self {
             panel_order,

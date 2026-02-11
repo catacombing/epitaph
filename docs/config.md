@@ -42,6 +42,13 @@ at <br> `${XDG_CONFIG_HOME:-$HOME/.config}/epitaph/epitaph.toml`.
 |-|-|-|-|
 |height|Height of the panel in pixels at scale 1|integer|`20`|
 |padding|Panel padding at the screen corners|integer|`5`|
+
+### modules
+
+|Name|Description|Type|Default|
+|-|-|-|-|
 |left|Left-aligned panel modules|["Cellular" | "Battery" | "Clock" | "Wifi" | "Date"]|`[Date]`|
 |center|Center-aligned panel modules|["Cellular" | "Battery" | "Clock" | "Wifi" | "Date"]|`[Clock]`|
 |right|Right-aligned panel modules|["Cellular" | "Battery" | "Clock" | "Wifi" | "Date"]|`[Cellular, Wifi, Battery]`|
+|clock_format|Format for the clock module|text|`"%H:%M"`|
+|date_format|Format for the date module|text|`"%a. %-d"`|
