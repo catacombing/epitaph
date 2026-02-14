@@ -265,6 +265,16 @@ impl Panel {
         self.background_activity = None;
     }
 
+    /// Handle configuration changes.
+    pub fn update_config(&mut self, config: &Config) {
+        // Update panel height.
+        if config.geometry.height != self.size.height {
+            self.window.set_exclusive_zone(config.geometry.height as i32);
+            self.window.set_size(0, config.geometry.height);
+            self.window.commit();
+        }
+    }
+
     /// (Re)start timer for the background activity bar.
     fn restart_background_timeout(&mut self) {
         // Cancel existing timer.

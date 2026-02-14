@@ -110,6 +110,7 @@ async fn main() {
         .handle()
         .insert_source(config_source, |_, _, state: &mut State| {
             if let Some(config) = load_config(&state.config_manager) {
+                state.panel.update_config(&config);
                 state.config = config;
             }
             state.unstall();
@@ -814,6 +815,10 @@ impl ConfigEventHandler for ConfigNotify {
 
     fn file_changed(&self, _config: &configory::Config) {
         self.ping.ping();
+    }
+
+    fn file_error(&self, _config: &configory::Config, err: configory::Error) {
+        error!("Configuration file error: {err}");
     }
 }
 
