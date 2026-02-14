@@ -764,7 +764,7 @@ impl Modules {
 
     /// Get modules as an immutable vector.
     pub fn as_vec(&self) -> SmallVec<[&dyn Module; MODULE_COUNT]> {
-        let mut vec: SmallVec<[&dyn Module; _]> = SmallVec::new();
+        let mut vec: SmallVec<[&dyn Module; MODULE_COUNT]> = SmallVec::new();
 
         vec.push(&self.volume);
 
@@ -816,7 +816,7 @@ impl Modules {
 
     /// Get modules as a mutable vector.
     pub fn as_vec_mut(&mut self) -> SmallVec<[&mut dyn Module; MODULE_COUNT]> {
-        let mut vec: SmallVec<[&mut dyn Module; _]> = SmallVec::new();
+        let mut vec: SmallVec<[&mut dyn Module; MODULE_COUNT]> = SmallVec::new();
 
         vec.push(&mut self.volume);
 
