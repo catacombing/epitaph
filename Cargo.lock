@@ -228,9 +228,9 @@ dependencies = [
 
 [[package]]
 name = "configory"
-version = "0.6.3"
+version = "0.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3e6fcac4f56315b85669946f05340c60f1b67f9f6c7ab8d1742fa18996a5e9a2"
+checksum = "78489243d7dbac060ae59dd9ca2ddf36f69005ddd542f89ecaae5a0d39814ec3"
 dependencies = [
  "configory_derive",
  "dirs",
@@ -245,9 +245,9 @@ dependencies = [
 
 [[package]]
 name = "configory_derive"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1f81505e79b358115ada50fa8bcfb981a0f61c0b37c5c442ace16c9dd0b06f81"
+checksum = "70a0d8799bda333c976d37fb47b6b30ca24e4f9b2e24193727b5b5b0b47f232c"
 dependencies = [
  "proc-macro2",
  "quote",

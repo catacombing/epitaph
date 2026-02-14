@@ -35,7 +35,7 @@ use smithay_client_toolkit::{
 use tracing::{error, info};
 use tracing_subscriber::{EnvFilter, FmtSubscriber};
 
-use crate::config::{Config, ConfigPanelModule};
+use crate::config::{Config, ConfigPanelModule, ConfigWrapper};
 use crate::drawer::{Drawer, HANDLE_HEIGHT};
 use crate::module::battery::Battery;
 use crate::module::brightness::Brightness;
@@ -110,11 +110,8 @@ async fn main() {
         .handle()
         .insert_source(config_source, |_, _, state: &mut State| {
             if let Some(config) = load_config(&state.config_manager) {
-                if let Err(err) = state.modules.update_panel_modules(&config, &state.event_loop) {
-                    error!("Failed to reload panel modules: {err}");
-                }
-                state.panel.update_config(&config);
                 state.config = config;
+                state.config_changed();
             }
             state.unstall();
         })
@@ -145,7 +142,7 @@ pub struct State {
 
     tap_timeout: Option<RegistrationToken>,
     active_touch: Option<i32>,
-    panel_height: Option<u32>,
+    drawer_height: Option<u32>,
     last_tap: Option<Instant>,
     touch_start: (f64, f64),
     drawer_opening: bool,
@@ -156,7 +153,8 @@ pub struct State {
     panel: Panel,
 
     config_manager: Manager<ConfigNotify>,
-    config: Config,
+    orientation: Transform,
+    config: ConfigWrapper,
 }
 
 impl State {
@@ -173,7 +171,8 @@ impl State {
 
         // Initialize panel modules.
         let config = load_config(&config_manager).unwrap_or_default();
-        let modules = Modules::new(&config, &event_loop)?;
+        let startup_config = config.orientation(Transform::Normal);
+        let modules = Modules::new(startup_config, &event_loop)?;
 
         // Create process reaper.
         let reaper = Reaper::new(&event_loop)?;
@@ -186,7 +185,7 @@ impl State {
 
         // Setup windows.
         let panel = Panel::new(
-            &config,
+            startup_config,
             queue.handle(),
             connection.clone(),
             event_loop.clone(),
@@ -194,7 +193,7 @@ impl State {
             egl_display.clone(),
         );
         let drawer = Drawer::new(
-            &config,
+            startup_config,
             queue.handle(),
             connection.clone(),
             &protocol_states,
@@ -210,12 +209,13 @@ impl State {
             drawer,
             reaper,
             panel,
+            orientation: Transform::Normal,
             drawer_opening: Default::default(),
+            drawer_height: Default::default(),
             active_touch: Default::default(),
-            panel_height: Default::default(),
             last_touch_y: Default::default(),
-            touch_start: Default::default(),
             tap_timeout: Default::default(),
+            touch_start: Default::default(),
             terminated: Default::default(),
             last_tap: Default::default(),
             touch: Default::default(),
@@ -224,29 +224,34 @@ impl State {
 
     /// Draw window associated with the surface.
     fn draw(&mut self, surface: &WlSurface) {
+        let config = self.config.orientation(self.orientation);
         if self.panel.owns_surface(surface) {
-            self.panel.draw(&self.config, &self.modules);
+            self.panel.draw(config, &self.modules);
         } else if self.drawer.owns_surface(surface) {
             let compositor = &self.protocol_states.compositor;
-            self.drawer.draw(&self.config, compositor, &mut self.modules, self.drawer_opening);
+            self.drawer.draw(config, compositor, &mut self.modules, self.drawer_opening);
         }
     }
 
     /// Unstall all renderers.
     fn unstall(&mut self) {
-        let compositor = &self.protocol_states.compositor;
-        self.drawer.unstall(&self.config, compositor, &mut self.modules, self.drawer_opening);
+        let config = self.config.orientation(self.orientation);
 
-        self.panel.unstall(&self.config, &self.modules);
+        let compositor = &self.protocol_states.compositor;
+        self.drawer.unstall(config, compositor, &mut self.modules, self.drawer_opening);
+
+        self.panel.unstall(config, &self.modules);
     }
 
     /// Set drawer status without animation.
     fn set_drawer_status(&mut self, open: bool) {
         if open {
+            let config = self.config.orientation(self.orientation);
+
             // Show drawer on panel single-tap with drawer closed.
             self.drawer.offset = self.drawer.max_offset();
             let compositor = &self.protocol_states.compositor;
-            self.drawer.unstall(&self.config, compositor, &mut self.modules, self.drawer_opening);
+            self.drawer.unstall(config, compositor, &mut self.modules, self.drawer_opening);
         } else {
             // Hide drawer on single-tap of panel or drawer handle.
             self.drawer.offset = 0.;
@@ -258,6 +263,15 @@ impl State {
     fn clear_background_activity(&mut self) {
         self.panel.clear_background_activity();
         self.unstall();
+    }
+
+    /// Propagate configuration updates.
+    fn config_changed(&mut self) {
+        let config = self.config.orientation(self.orientation);
+        if let Err(err) = self.modules.update_panel_modules(config, &self.event_loop) {
+            error!("Failed to reload panel modules: {err}");
+        }
+        self.panel.update_config(config);
     }
 }
 
@@ -295,8 +309,13 @@ impl CompositorHandler for State {
         _: &Connection,
         _: &QueueHandle<Self>,
         _: &WlSurface,
-        _: Transform,
+        transform: Transform,
     ) {
+        // Handle screen orientation changes.
+        if transform != self.orientation {
+            self.orientation = transform;
+            self.config_changed();
+        }
     }
 
     fn surface_enter(
@@ -326,15 +345,17 @@ impl FractionalScaleHandler for State {
         surface: &WlSurface,
         factor: f64,
     ) {
+        let config = self.config.orientation(self.orientation);
+
         if self.panel.owns_surface(surface) {
             self.panel.set_scale_factor(factor);
 
-            self.panel.unstall(&self.config, &self.modules);
+            self.panel.unstall(config, &self.modules);
         } else if self.drawer.owns_surface(surface) {
             self.drawer.set_scale_factor(factor);
 
             let compositor = &self.protocol_states.compositor;
-            self.drawer.unstall(&self.config, compositor, &mut self.modules, self.drawer_opening);
+            self.drawer.unstall(config, compositor, &mut self.modules, self.drawer_opening);
         }
     }
 }
@@ -382,17 +403,18 @@ impl LayerShellHandler for State {
         configure: LayerSurfaceConfigure,
         _serial: u32,
     ) {
+        let config = self.config.orientation(self.orientation);
         let surface = layer.wl_surface();
         if self.panel.owns_surface(surface) {
             self.panel.set_size(&self.protocol_states.compositor, configure.new_size.into());
 
-            self.panel.unstall(&self.config, &self.modules);
+            self.panel.unstall(config, &self.modules);
         } else if self.drawer.owns_surface(surface) {
-            self.panel_height = Some(configure.new_size.1);
+            self.drawer_height = Some(configure.new_size.1);
             self.drawer.set_size(configure.new_size.into());
 
             let compositor = &self.protocol_states.compositor;
-            self.drawer.unstall(&self.config, compositor, &mut self.modules, self.drawer_opening);
+            self.drawer.unstall(config, compositor, &mut self.modules, self.drawer_opening);
         }
     }
 }
@@ -453,8 +475,9 @@ impl TouchHandler for State {
             self.active_touch = Some(id);
             self.drawer_opening = true;
         } else if self.drawer.owns_surface(&surface) {
+            let config = self.config.orientation(self.orientation);
             let touch_start =
-                self.drawer.touch_down(&self.config, id, position.into(), &mut self.modules);
+                self.drawer.touch_down(config, id, position.into(), &mut self.modules);
 
             // Check drawer touch status.
             if !touch_start.module_touched {
@@ -485,8 +508,9 @@ impl TouchHandler for State {
             self.active_touch = None;
 
             // Handle short taps.
+            let config = self.config.orientation(self.orientation);
             if !self.drawer.offsetting {
-                let multi_tap_interval = *self.config.input.multi_tap_interval;
+                let multi_tap_interval = *config.input.multi_tap_interval;
                 if last_tap.is_some_and(|tap| tap.elapsed() <= multi_tap_interval) {
                     // Remove delayed single-tap callback.
                     if let Some(source) = self.tap_timeout.take() {
@@ -494,11 +518,11 @@ impl TouchHandler for State {
                     }
 
                     // Turn off display on panel double-tap.
-                    if self.touch_start.1 <= self.config.geometry.height as f64 {
+                    if self.touch_start.1 <= config.geometry.height as f64 {
                         let msg = IpcMessage::Dpms { state: Some(CliToggle::Off) };
                         let _ = catacomb_ipc::send_message(&msg);
                     }
-                } else if self.touch_start.1 <= self.config.geometry.height as f64 {
+                } else if self.touch_start.1 <= config.geometry.height as f64 {
                     // Stage delayed single-tap for taps on the top panel.
                     let drawer_opening = self.drawer_opening;
                     let timer = Timer::from_duration(multi_tap_interval);
@@ -507,8 +531,8 @@ impl TouchHandler for State {
                         TimeoutAction::Drop
                     });
                     self.tap_timeout = source.ok();
-                } else if self.panel_height.is_some_and(|panel_height| {
-                    self.touch_start.1 >= panel_height as f64 - HANDLE_HEIGHT as f64
+                } else if self.drawer_height.is_some_and(|drawer_height| {
+                    self.touch_start.1 >= drawer_height as f64 - HANDLE_HEIGHT as f64
                 }) {
                     // Immediately close drawer, since handle has no double-tap.
                     self.set_drawer_status(false);
@@ -520,12 +544,7 @@ impl TouchHandler for State {
                 self.drawer.start_animation();
 
                 let compositor = &self.protocol_states.compositor;
-                self.drawer.unstall(
-                    &self.config,
-                    compositor,
-                    &mut self.modules,
-                    self.drawer_opening,
-                );
+                self.drawer.unstall(config, compositor, &mut self.modules, self.drawer_opening);
             }
         // Handle module touch events.
         } else {
@@ -545,11 +564,13 @@ impl TouchHandler for State {
         id: i32,
         position: (f64, f64),
     ) {
+        let config = self.config.orientation(self.orientation);
+
         if self.active_touch == Some(id) {
             // Ignore touch motion until drag threshold is reached.
             let x_delta = position.0 - self.touch_start.0;
             let y_delta = position.1 - self.touch_start.1;
-            if x_delta.powi(2) + y_delta.powi(2) <= self.config.input.max_tap_distance {
+            if x_delta.powi(2) + y_delta.powi(2) <= config.input.max_tap_distance {
                 return;
             }
 
@@ -559,12 +580,11 @@ impl TouchHandler for State {
             self.drawer.offset += delta;
 
             let compositor = &self.protocol_states.compositor;
-            self.drawer.unstall(&self.config, compositor, &mut self.modules, self.drawer_opening);
+            self.drawer.unstall(config, compositor, &mut self.modules, self.drawer_opening);
 
             self.last_touch_y = position.1;
         } else {
-            let dirty =
-                self.drawer.touch_motion(&self.config, id, position.into(), &mut self.modules);
+            let dirty = self.drawer.touch_motion(config, id, position.into(), &mut self.modules);
 
             if dirty {
                 self.unstall();
@@ -862,8 +882,8 @@ impl ConfigEventHandler for ConfigNotify {
 }
 
 /// Reload the configuration.
-fn load_config(config_manager: &Manager<ConfigNotify>) -> Option<Config> {
-    match config_manager.get::<&str, Config>(&[]) {
+fn load_config(config_manager: &Manager<ConfigNotify>) -> Option<ConfigWrapper> {
+    match config_manager.get::<&str, ConfigWrapper>(&[]) {
         Ok(config) => Some(config.unwrap_or_default()),
         // Avoid resetting active config on error.
         Err(err) => {

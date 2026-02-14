@@ -12,6 +12,12 @@ at <br> `${XDG_CONFIG_HOME:-$HOME/.config}/epitaph/epitaph.toml`.
 
 ## Fields
 
+|Name|Description|Type|Default|
+|-|-|-|-|
+|landscape|Landscape mode configuration options.<br><br>This is a TOML table matching the root table, which allows overriding any option while in landscape mode.<br><br>Falls back to portrait mode if `null`.|`…`|`null`|
+|inverse_portrait|Inverse portrait mode configuration options.<br><br>This is a TOML table matching the root table, which allows overriding any option while in inverse portrait mode.<br><br>Falls back to portrait mode if `null`.|`…`|`null`|
+|inverse_landscape|Inverse landscape mode configuration options.<br><br>This is a TOML table matching the root table, which allows overriding any option while in inverse landscape mode.<br><br>Falls back to landscape and then portrait mode if `null`.|`…`|`null`|
+
 ### font
 
 |Name|Description|Type|Default|

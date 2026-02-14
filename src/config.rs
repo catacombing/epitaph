@@ -8,6 +8,7 @@ use std::time::Duration;
 use configory::docgen::{DocType, Docgen, Leaf};
 use serde::de::Visitor;
 use serde::{Deserialize, Deserializer};
+use smithay_client_toolkit::reexports::client::protocol::wl_output::Transform;
 
 /// # Epitaph
 ///
@@ -22,6 +23,55 @@ use serde::{Deserialize, Deserializer};
 /// at <br> `${XDG_CONFIG_HOME:-$HOME/.config}/epitaph/epitaph.toml`.
 ///
 /// ## Fields
+#[derive(Docgen, Deserialize, Default, Debug)]
+#[serde(default, deny_unknown_fields)]
+pub struct ConfigWrapper {
+    #[serde(flatten)]
+    #[docgen(flatten)]
+    portrait: Config,
+    /// Landscape mode configuration options.
+    ///
+    /// This is a TOML table matching the root table, which allows overriding
+    /// any option while in landscape mode.
+    ///
+    /// Falls back to portrait mode if `null`.
+    #[docgen(doc_type = "`…`")]
+    landscape: Option<Config>,
+    /// Inverse portrait mode configuration options.
+    ///
+    /// This is a TOML table matching the root table, which allows overriding
+    /// any option while in inverse portrait mode.
+    ///
+    /// Falls back to portrait mode if `null`.
+    #[docgen(doc_type = "`…`")]
+    inverse_portrait: Option<Config>,
+    /// Inverse landscape mode configuration options.
+    ///
+    /// This is a TOML table matching the root table, which allows overriding
+    /// any option while in inverse landscape mode.
+    ///
+    /// Falls back to landscape and then portrait mode if `null`.
+    #[docgen(doc_type = "`…`")]
+    inverse_landscape: Option<Config>,
+}
+
+impl ConfigWrapper {
+    /// Get the config for a specific orientation.
+    pub fn orientation(&self, orientation: Transform) -> &Config {
+        match orientation {
+            Transform::_90 => self.landscape.as_ref().unwrap_or(&self.portrait),
+            Transform::_180 => self.inverse_portrait.as_ref().unwrap_or(&self.portrait),
+            Transform::_270 => self
+                .inverse_landscape
+                .as_ref()
+                .or(self.landscape.as_ref())
+                .unwrap_or(&self.portrait),
+            _ => &self.portrait,
+        }
+    }
+}
+
+/// Concrete configuration options for portrat or landscape mode.
 #[derive(Docgen, Deserialize, Default, Debug)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
@@ -288,7 +338,7 @@ mod tests {
     fn config_docs() {
         let mut formatter = Markdown::new();
         formatter.set_heading_size(3);
-        let expected = formatter.format::<Config>();
+        let expected = formatter.format::<ConfigWrapper>();
 
         // Uncomment to update config documentation.
         // fs::write("./docs/config.md", &expected).unwrap();

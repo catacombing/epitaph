@@ -16,7 +16,7 @@ calloop = { version = "0.14.0", features = ["signals"] }
 calloop-wayland-source = "0.4.0"
 catacomb_ipc = { git = "https://github.com/chrisduerr/catacomb", rev = "eb2ebcfeffae11cb7bce6a25940ad0ef792e0cd2" }
 chrono = { version = "0.4.20", default-features = false, features = ["clock"] }
-configory = { version = "0.6.3", features = ["docgen", "log"] }
+configory = { version = "0.6.4", features = ["docgen", "log"] }
 crossfont = "0.9.0"
 futures-lite = "2.6.0"
 glutin = { version = "0.32.1", default-features = false, features = ["egl", "wayland"] }
