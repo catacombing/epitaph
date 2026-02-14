@@ -1,5 +1,6 @@
 //! Nice clock.
 
+use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
 use calloop::LoopHandle;
@@ -12,14 +13,14 @@ use crate::{Result, State};
 
 pub struct Clock {
     alignment: Alignment,
-    format: String,
+    format: Arc<String>,
 }
 
 impl Clock {
     pub fn new(
         event_loop: &LoopHandle<'static, State>,
         alignment: Alignment,
-        format: String,
+        format: Arc<String>,
     ) -> Result<Self> {
         event_loop.insert_source(Timer::immediate(), move |now, _, state| {
             state.unstall();
@@ -33,6 +34,11 @@ impl Clock {
 
         Ok(Self { alignment, format })
     }
+
+    /// Update the clock format string.
+    pub fn set_format(&mut self, format: Arc<String>) {
+        self.format = format;
+    }
 }
 
 impl Module for Clock {
@@ -44,6 +50,10 @@ impl Module for Clock {
 impl PanelModule for Clock {
     fn alignment(&self) -> Alignment {
         self.alignment
+    }
+
+    fn set_alignment(&mut self, alignment: Alignment) {
+        self.alignment = alignment;
     }
 
     fn content(&self) -> PanelModuleContent {

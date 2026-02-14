@@ -96,6 +96,10 @@ impl PanelModule for Battery {
         self.alignment
     }
 
+    fn set_alignment(&mut self, alignment: Alignment) {
+        self.alignment = alignment;
+    }
+
     fn content(&self) -> PanelModuleContent {
         PanelModuleContent::Svg(match (self.charging, self.capacity) {
             (true, 80..) => Svg::BatteryCharging100,

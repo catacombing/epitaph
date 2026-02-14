@@ -67,6 +67,10 @@ impl PanelModule for Cellular {
         self.alignment
     }
 
+    fn set_alignment(&mut self, alignment: Alignment) {
+        self.alignment = alignment;
+    }
+
     fn content(&self) -> PanelModuleContent {
         PanelModuleContent::Svg(self.svg())
     }

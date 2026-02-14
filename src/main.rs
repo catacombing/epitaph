@@ -48,7 +48,7 @@ use crate::module::orientation::Orientation;
 use crate::module::scale::Scale;
 use crate::module::volume::Volume;
 use crate::module::wifi::Wifi;
-use crate::module::{Alignment, Module};
+use crate::module::{Alignment, Module, PanelModule};
 use crate::panel::Panel;
 use crate::protocols::fractional_scale::{FractionalScaleHandler, FractionalScaleManager};
 use crate::protocols::viewporter::Viewporter;
@@ -110,6 +110,9 @@ async fn main() {
         .handle()
         .insert_source(config_source, |_, _, state: &mut State| {
             if let Some(config) = load_config(&state.config_manager) {
+                if let Err(err) = state.modules.update_panel_modules(&config, &state.event_loop) {
+                    error!("Failed to reload panel modules: {err}");
+                }
                 state.panel.update_config(&config);
                 state.config = config;
             }
@@ -647,38 +650,87 @@ pub struct Modules {
 
 impl Modules {
     fn new(config: &Config, event_loop: &LoopHandle<'static, State>) -> Result<Self> {
-        // Initialize panel modules with their corresponding alignment.
+        let mut modules = Self {
+            volume: Volume::new(event_loop)?,
+            orientation: Orientation::new(),
+            brightness: Brightness::new()?,
+            flashlight: Flashlight::new(),
+            gps: Gps::new(event_loop)?,
+            scale: Scale::new(),
+            panel_order: Default::default(),
+            cellular: Default::default(),
+            battery: Default::default(),
+            clock: Default::default(),
+            wifi: Default::default(),
+            date: Default::default(),
+        };
+        modules.update_panel_modules(config, event_loop)?;
 
-        let mut panel_order = Vec::new();
-        let mut cellular = None;
-        let mut battery = None;
-        let mut clock = None;
-        let mut date = None;
-        let mut wifi = None;
+        Ok(modules)
+    }
+
+    /// Initialize or update panel modules according to the configured layout.
+    pub fn update_panel_modules(
+        &mut self,
+        config: &Config,
+        event_loop: &LoopHandle<'static, State>,
+    ) -> Result<()> {
+        self.panel_order.clear();
+
+        // Ensure unused modules are dropped.
+        let mut old_cellular = self.cellular.take();
+        let mut old_battery = self.battery.take();
+        let mut old_clock = self.clock.take();
+        let mut old_date = self.date.take();
+        let mut old_wifi = self.wifi.take();
 
         let mut assign_module = |config_modules: &[ConfigPanelModule], alignment| -> Result<()> {
             for module in config_modules {
-                match module {
-                    ConfigPanelModule::Cellular if cellular.is_none() => {
-                        cellular = Some(Cellular::new(event_loop, alignment)?)
+                let panel_module: &mut dyn PanelModule = match module {
+                    ConfigPanelModule::Cellular if self.cellular.is_none() => {
+                        let cellular = match old_cellular.take() {
+                            Some(cellular) => cellular,
+                            None => Cellular::new(event_loop, alignment)?,
+                        };
+                        self.cellular.insert(cellular)
                     },
-                    ConfigPanelModule::Battery if battery.is_none() => {
-                        battery = Some(Battery::new(event_loop, alignment)?)
+                    ConfigPanelModule::Battery if self.battery.is_none() => {
+                        let battery = match old_battery.take() {
+                            Some(battery) => battery,
+                            None => Battery::new(event_loop, alignment)?,
+                        };
+                        self.battery.insert(battery)
                     },
-                    ConfigPanelModule::Clock if clock.is_none() => {
+                    ConfigPanelModule::Clock if self.clock.is_none() => {
                         let clock_format = config.modules.clock_format.clone();
-                        clock = Some(Clock::new(event_loop, alignment, clock_format)?)
+                        let mut clock = match old_clock.take() {
+                            Some(clock) => clock,
+                            None => Clock::new(event_loop, alignment, clock_format.clone())?,
+                        };
+                        clock.set_format(clock_format);
+                        self.clock.insert(clock)
                     },
-                    ConfigPanelModule::Date if date.is_none() => {
+                    ConfigPanelModule::Date if self.date.is_none() => {
                         let date_format = config.modules.date_format.clone();
-                        date = Some(Date::new(alignment, date_format))
+                        let mut date = match old_date.take() {
+                            Some(date) => date,
+                            None => Date::new(alignment, date_format.clone()),
+                        };
+                        date.set_format(date_format);
+                        self.date.insert(date)
                     },
-                    ConfigPanelModule::Wifi if wifi.is_none() => {
-                        wifi = Some(Wifi::new(event_loop, alignment)?)
+                    ConfigPanelModule::Wifi if self.wifi.is_none() => {
+                        let wifi = match old_wifi.take() {
+                            Some(wifi) => wifi,
+                            None => Wifi::new(event_loop, alignment)?,
+                        };
+                        self.wifi.insert(wifi)
                     },
-                    _ => (),
-                }
-                panel_order.push(*module);
+                    _ => continue,
+                };
+                panel_module.set_alignment(alignment);
+
+                self.panel_order.push(*module);
             }
             Ok(())
         };
@@ -687,20 +739,7 @@ impl Modules {
         assign_module(&config.modules.center, Alignment::Center)?;
         assign_module(&config.modules.right, Alignment::Right)?;
 
-        Ok(Self {
-            panel_order,
-            cellular,
-            battery,
-            clock,
-            wifi,
-            date,
-            orientation: Orientation::new(),
-            brightness: Brightness::new()?,
-            flashlight: Flashlight::new(),
-            volume: Volume::new(event_loop)?,
-            gps: Gps::new(event_loop)?,
-            scale: Scale::new(),
-        })
+        Ok(())
     }
 
     /// Get modules as an immutable vector.

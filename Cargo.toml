@@ -24,7 +24,7 @@ libc = "0.2.127"
 libpulse-binding = "2.30.1"
 raw-window-handle = "0.6.2"
 resvg = { version = "0.46.0", default-features = false }
-serde = { version = "1.0.219", features = ["derive"] }
+serde = { version = "1.0.219", features = ["derive", "rc"] }
 smallvec = "1.15.1"
 smithay-client-toolkit = { version = "0.20.0", default-features = false, features = ["xkbcommon"] }
 tokio = { version = "1.26.0", features = ["macros"] }

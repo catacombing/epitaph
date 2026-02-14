@@ -2,6 +2,7 @@
 
 use std::fmt::{self, Display, Formatter};
 use std::ops::Deref;
+use std::sync::Arc;
 use std::time::Duration;
 
 use configory::docgen::{DocType, Docgen, Leaf};
@@ -126,9 +127,9 @@ pub struct Modules {
     pub right: Vec<ConfigPanelModule>,
 
     /// Format for the clock module.
-    pub clock_format: String,
+    pub clock_format: Arc<String>,
     /// Format for the date module.
-    pub date_format: String,
+    pub date_format: Arc<String>,
 }
 
 impl Default for Modules {
@@ -141,8 +142,8 @@ impl Default for Modules {
                 ConfigPanelModule::Wifi,
                 ConfigPanelModule::Battery,
             ],
-            date_format: "%a. %-d".into(),
-            clock_format: "%H:%M".into(),
+            date_format: Arc::new("%a. %-d".into()),
+            clock_format: Arc::new("%H:%M".into()),
         }
     }
 }

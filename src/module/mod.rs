@@ -47,6 +47,9 @@ pub trait PanelModule {
     /// Module alignment.
     fn alignment(&self) -> Alignment;
 
+    /// Update module alignment.
+    fn set_alignment(&mut self, _alignment: Alignment);
+
     /// Renderable panel content.
     fn content(&self) -> PanelModuleContent;
 
