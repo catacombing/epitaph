@@ -15,6 +15,13 @@ use zbus::{Connection, proxy};
 /// Minimum GPS refresh rate in seconds.
 const MIN_GPS_REFRESH: u32 = 30;
 
+/// Supported modem GPS sources.
+///
+/// We currently only toggle NMEA mode, since some devices (like the Fairphone
+/// 5) struggle with toggling multiple modes at the same time. NMEA is supported
+/// by most applications and devices.
+const SOURCES: u32 = ModemLocationSource::GpsNmea as u32;
+
 /// Cellular connection status.
 #[derive(PartialEq, Eq, Default, Copy, Clone, Debug)]
 pub struct ModemConnection {
@@ -204,11 +211,10 @@ async fn run_gps_dbus_loop(tx: Sender<bool>) -> Result<(), Box<dyn Error>> {
         };
 
         // Check whether any modem has GPS enabled.
-        let gps_raw = ModemLocationSource::GpsRaw as u32;
         let mut gps_enabled = false;
         for (_, _, location) in &modems {
             let enabled = location.enabled().await.unwrap_or(0);
-            if enabled & gps_raw != 0 {
+            if enabled & SOURCES != 0 {
                 gps_enabled = true;
                 break;
             }
@@ -234,7 +240,7 @@ pub fn set_gps_enabled(enabled: bool) {
             let refresh_rate = location.gps_refresh_rate().await.unwrap_or(u32::MAX);
             let sources = location.enabled().await.unwrap_or(0);
 
-            // No enable, refresh rate if it is above the minimum.
+            // On enable, set refresh rate if it is above the minimum.
             if enabled
                 && refresh_rate > MIN_GPS_REFRESH
                 && let Err(err) = location.set_gps_refresh_rate(MIN_GPS_REFRESH).await
@@ -242,12 +248,8 @@ pub fn set_gps_enabled(enabled: bool) {
                 error!("Failed to update GPS refresh rate: {err}");
             }
 
-            // Enable raw GPS mode if it is not already enabled.
-            let target_sources = if enabled {
-                sources | ModemLocationSource::GpsRaw as u32
-            } else {
-                sources & !(ModemLocationSource::GpsRaw as u32)
-            };
+            // Update enabled GPS modes.
+            let target_sources = if enabled { sources | SOURCES } else { sources & !(SOURCES) };
             if sources != target_sources
                 && let Err(err) = location.setup(target_sources, false).await
             {
