@@ -200,7 +200,7 @@ impl Default for Modules {
 
 /// Panel modules.
 #[derive(Docgen, Deserialize, PartialEq, Eq, Copy, Clone, Debug)]
-#[docgen(doc_type = "\"Cellular\" | \"Battery\" | \"Clock\" | \"Wifi\" | \"Date\"")]
+#[docgen(doc_type = "\"Cellular\" \\| \"Battery\" \\| \"Clock\" \\| \"Wifi\" \\| \"Date\"")]
 pub enum ConfigPanelModule {
     Cellular,
     Battery,

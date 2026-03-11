@@ -53,8 +53,8 @@ at <br> `${XDG_CONFIG_HOME:-$HOME/.config}/epitaph/epitaph.toml`.
 
 |Name|Description|Type|Default|
 |-|-|-|-|
-|left|Left-aligned panel modules|["Cellular" | "Battery" | "Clock" | "Wifi" | "Date"]|`[Date]`|
-|center|Center-aligned panel modules|["Cellular" | "Battery" | "Clock" | "Wifi" | "Date"]|`[Clock]`|
-|right|Right-aligned panel modules|["Cellular" | "Battery" | "Clock" | "Wifi" | "Date"]|`[Cellular, Wifi, Battery]`|
+|left|Left-aligned panel modules|["Cellular" \| "Battery" \| "Clock" \| "Wifi" \| "Date"]|`[Date]`|
+|center|Center-aligned panel modules|["Cellular" \| "Battery" \| "Clock" \| "Wifi" \| "Date"]|`[Clock]`|
+|right|Right-aligned panel modules|["Cellular" \| "Battery" \| "Clock" \| "Wifi" \| "Date"]|`[Cellular, Wifi, Battery]`|
 |clock_format|Format for the clock module|text|`"%H:%M"`|
 |date_format|Format for the date module|text|`"%a. %-d"`|
