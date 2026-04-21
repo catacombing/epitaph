@@ -10,6 +10,12 @@ displaying and controlling commonly accessed OS functionality.
   <img src="https://github.com/user-attachments/assets/66e61ac3-efb8-4417-97c8-73c39347cf02" width="45%"/>
 </p>
 
+## Configuration
+
+See the [configuration file documentation].
+
+[configuration file documentation]: ./docs/config.md
+
 ## Permissions
 
 To allow toggling Cellular, WiFi, Flashlight, and controlling screen brightness,
